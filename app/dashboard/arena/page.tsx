@@ -483,26 +483,24 @@ export default function ArenaPage() {
       return;
     }
 
-    for (const hour of openingHours) {
-      if (hour.id) {
-        await supabase
-          .from("arena_opening_hours")
-          .update({
-            is_open: hour.is_open,
-            open_time: hour.is_open ? hour.open_time : null,
-            close_time: hour.is_open ? hour.close_time : null,
-          })
-          .eq("id", hour.id);
-      } else {
-        await supabase.from("arena_opening_hours").insert({
-          arena_id: activeArenaId,
-          weekday: hour.weekday,
-          is_open: hour.is_open,
-          open_time: hour.is_open ? hour.open_time : null,
-          close_time: hour.is_open ? hour.close_time : null,
-        });
-      }
-    }
+    const { error: hoursError } = await supabase
+  .from("arena_opening_hours")
+  .upsert(
+    openingHours.map((hour) => ({
+      arena_id: activeArenaId,
+      weekday: hour.weekday,
+      is_open: hour.is_open,
+      open_time: hour.is_open ? hour.open_time : null,
+      close_time: hour.is_open ? hour.close_time : null,
+    })),
+    { onConflict: "arena_id,weekday" }
+  );
+
+if (hoursError) {
+  setSaving(false);
+  alert(hoursError.message);
+  return;
+}
 
     for (const rule of rules) {
       await supabase
