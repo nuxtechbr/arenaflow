@@ -207,23 +207,64 @@ export default function AdminPage() {
   }
 
   async function createSubscriptionForArena(arena: Arena) {
+    const today = new Date();
+    const defaultDueDate = getNextMonthDueDate(today.getDate());
+
+    const nextDueDate = prompt(
+      `Qual será o próximo vencimento da assinatura da arena ${arena.name}?
+
+Use o formato: AAAA-MM-DD`,
+      defaultDueDate
+    );
+
+    if (!nextDueDate) return;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) {
+      return alert("Data inválida. Use o formato AAAA-MM-DD. Exemplo: 2026-06-23");
+    }
+
+    const monthlyAmountInput = prompt(
+      `Qual será o valor mensal da arena ${arena.name}?`,
+      String(DEFAULT_AMOUNT)
+    );
+
+    if (!monthlyAmountInput) return;
+
+    const monthlyAmount = Number(
+      monthlyAmountInput.replace(",", ".").replace(/[^\d.]/g, "")
+    );
+
+    if (!monthlyAmount || monthlyAmount <= 0) {
+      return alert("Valor mensal inválido.");
+    }
+
     const ok = confirm(
-      `Criar uma assinatura NOVA para esta arena?\n\nArena: ${arena.name}\nValor: R$ ${formatMoney(DEFAULT_AMOUNT)}\n\nUse isso apenas quando essa arena for um cliente/assinante separado. Se for segunda arena do mesmo dono, NÃO crie outra assinatura.`
+      `Confirmar criação da assinatura?
+
+Arena: ${arena.name}
+Valor: R$ ${formatMoney(
+        monthlyAmount
+      )}
+Próximo vencimento: ${formatDate(nextDueDate)}
+
+A implementação já foi paga e a primeira mensalidade ficará para essa data.
+
+Use isso apenas quando essa arena for um cliente/assinante separado. Se for segunda arena do mesmo dono, NÃO crie outra assinatura.`
     );
 
     if (!ok) return;
 
     setSavingId(arena.id);
 
-    const dueDay = new Date().getDate();
-    const nextDueDate = getNextMonthDueDate(dueDay);
+    const dueDay = Number(nextDueDate.slice(8, 10));
+    const referenceMonth = nextDueDate.slice(0, 7);
 
     const { data: subscription, error } = await supabase
       .from("subscriptions")
       .insert({
         arena_id: arena.id,
         plan_name: DEFAULT_PLAN,
-        monthly_amount: DEFAULT_AMOUNT,
+        monthly_amount: monthlyAmount,
         due_day: dueDay,
         status: "active",
         next_due_date: nextDueDate,
@@ -231,7 +272,7 @@ export default function AdminPage() {
         payment_pix_key: DEFAULT_PIX_KEY,
         payment_whatsapp: DEFAULT_PAYMENT_WHATSAPP,
         notes:
-          "Assinatura criada pelo Admin Master. Implementação paga. Primeira mensalidade para o próximo mês.",
+          "Assinatura criada manualmente pelo Admin Master. Implementação paga. Primeira mensalidade definida manualmente.",
       })
       .select("*")
       .single();
@@ -241,17 +282,15 @@ export default function AdminPage() {
       return alert(error.message);
     }
 
-    const referenceMonth = nextDueDate.slice(0, 7);
-
     const invoiceInsert = await supabase.from("subscription_invoices").insert({
       arena_id: arena.id,
       subscription_id: subscription.id,
       reference_month: referenceMonth,
       due_date: nextDueDate,
-      amount: DEFAULT_AMOUNT,
+      amount: monthlyAmount,
       paid_amount: 0,
       status: "pending",
-      notes: "Primeira mensalidade após período inicial.",
+      notes: "Primeira mensalidade após implementação inicial.",
     });
 
     if (invoiceInsert.error) {

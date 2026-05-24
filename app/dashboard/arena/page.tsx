@@ -268,8 +268,13 @@ export default function ArenaPage() {
   }
 
   async function uploadImage(file: File, folder: string) {
-    if (activeArenaId) {
+    if (!activeArenaId) {
       alert("Arena não carregada. Aguarde e tente novamente.");
+      return null;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      alert("Envie apenas arquivos de imagem.");
       return null;
     }
 
@@ -278,12 +283,16 @@ export default function ArenaPage() {
       return null;
     }
 
-    const fileExt = file.name.split(".").pop();
-    const fileName = `${activeArenaId}/${folder}/${Date.now()}.${fileExt}`;
+    const fileExt = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const safeFolder = folder.replace(/[^a-z0-9-]/gi, "").toLowerCase();
+    const fileName = `${activeArenaId}/${safeFolder}/${Date.now()}.${fileExt}`;
 
     const { error } = await supabase.storage
       .from("arena-media")
-      .upload(fileName, file, { upsert: true });
+      .upload(fileName, file, {
+        upsert: true,
+        contentType: file.type,
+      });
 
     if (error) {
       alert(error.message);
