@@ -823,10 +823,19 @@ export default function BookingsPage() {
     if (arenaId) await loadData(arenaId);
   }
 
-  if (loading) return <p className="text-white">Carregando reservas...</p>;
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-[#F5F7FB] text-slate-950">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold shadow-sm">
+          <CalendarDays className="text-emerald-600" />
+          Carregando reservas...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-8">
+    <div className="mx-auto max-w-[1640px] space-y-4 bg-[#F5F7FB] p-4 text-slate-950 md:p-6">
       <PageHeader view={view} arenaName={activeArenaInfo?.name || "Arena selecionada"} />
       {view === "agenda" && <AgendaView fields={fields} selectedDate={selectedDate} setSelectedDate={setSelectedDate} agendaTimes={agendaTimes} bookings={bookings} recurringBookings={recurringForSelectedDate} blocks={scheduleBlocks.filter((block) => block.block_date === selectedDate && block.status === "active")} onFreeClick={(fieldId, time) => { prepareNewBooking(fieldId, time); window.history.pushState(null, "", "/dashboard/bookings?view=nova"); }} />}
       {view === "nova" && <NewBookingForm form={bookingForm} setForm={setBookingForm} searchType={searchType} setSearchType={setSearchType} customerSearch={customerSearch} onCustomerSearch={handleCustomerSearch} customers={filteredCustomers} onSelectCustomer={selectCustomer} fields={fields} pricingOptions={pricingForSelectedField} selectedPricing={selectedPricing} amount={bookingAmount} endTime={bookingEndTime} availableTimes={availableTimes} onChange={handleBookingChange} onSubmit={saveBooking} saving={saving} />}
@@ -883,7 +892,7 @@ export default function BookingsPage() {
 
 function PageHeader({ view, arenaName }: { view: View; arenaName: string }) {
   const titles: Record<View, string> = {
-    agenda: "Agenda do dia",
+    agenda: "Agenda operacional",
     nova: "Nova reserva",
     fixa: "Reserva fixa / mensalista",
     lista: "Lista de reservas",
@@ -891,80 +900,260 @@ function PageHeader({ view, arenaName }: { view: View; arenaName: string }) {
     resumo: "Resumo de reservas",
     bloqueios: "Bloqueios manuais",
   };
+
   const descriptions: Record<View, string> = {
-    agenda: "Visualize os horários do dia por quadra.",
+    agenda: "Controle os horários do dia, ocupação por quadra e ações rápidas.",
     nova: "Cadastre uma reserva avulsa para uma data específica.",
     fixa: "Cadastre horários recorrentes, mensalistas e cobrança mensal.",
-    lista: "Consulte e cancele reservas avulsas.",
-    fixas: "Gerencie clientes fixos e mensalistas.",
-    resumo: "Acompanhe o movimento de reservas.",
-    bloqueios: "Bloqueie horários para manutenção, evento interno, feriado ou indisponibilidade.",
+    lista: "Consulte, edite e cancele reservas avulsas.",
+    fixas: "Gerencie clientes fixos, mensalistas e solicitações pendentes.",
+    resumo: "Acompanhe movimento, receita e operação do dia.",
+    bloqueios: "Bloqueie horários para manutenção, evento interno ou indisponibilidade.",
   };
+
   return (
-    <div>
-      <p className="text-sm font-semibold text-[#22C55E]">Reservas</p>
-      <h1 className="mt-1 text-4xl font-black tracking-tight text-white">{titles[view]}</h1>
-      <p className="mt-2 text-slate-400">{descriptions[view]} • {arenaName}</p>
+    <header className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-slate-950" />
+      <div className="px-5 py-4 md:px-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-base font-black text-emerald-700 shadow-sm">
+                AF
+              </div>
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                  <CalendarDays size={13} />
+                  {arenaName}
+                </div>
+                <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
+                  {titles[view]}
+                </h1>
+              </div>
+            </div>
+            <p className="max-w-3xl text-sm leading-relaxed text-slate-600">{descriptions[view]}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <MiniHeaderStat label="Hoje" value="Agenda" />
+            <MiniHeaderStat label="Operação" value="Reservas" />
+            <MiniHeaderStat label="Clientes" value="Mensalistas" />
+            <MiniHeaderStat label="Controle" value="Bloqueios" />
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function MiniHeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-black text-slate-950">{value}</p>
     </div>
   );
 }
 
 function AgendaView({ fields, selectedDate, setSelectedDate, agendaTimes, bookings, recurringBookings, blocks, onFreeClick }: { fields: Field[]; selectedDate: string; setSelectedDate: (date: string) => void; agendaTimes: string[]; bookings: Booking[]; recurringBookings: RecurringBooking[]; blocks: ScheduleBlock[]; onFreeClick: (fieldId: string, time: string) => void }) {
+  const dayBookings = bookings
+    .filter((booking) => booking.booking_date === selectedDate)
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  const dayBlocks = blocks.filter((block) => block.block_date === selectedDate && block.status === "active");
+
   return (
-    <section className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-5">
-      <div className="mb-5 flex items-center justify-between gap-4">
+    <section className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl shadow-black/10 sm:p-5">
+      <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h2 className="flex items-center gap-2 text-2xl font-bold text-white"><CalendarDays size={22} /> Agenda</h2>
-          <p className="text-sm text-slate-400">
-            Verde: reserva avulsa • Roxo: reserva fixa • Cinza: ocupado • {fields.length} quadra(s) carregada(s)
+          <h2 className="flex items-center gap-2 text-2xl font-black text-slate-950">
+            <CalendarDays size={22} />
+            Agenda
+          </h2>
+
+          <p className="mt-1 text-sm leading-relaxed text-slate-500">
+            Verde: reserva avulsa • Roxo: reserva fixa • Cinza: bloqueio/ocupado • {fields.length} quadra(s)
           </p>
         </div>
-        <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" />
+
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm font-bold text-slate-950 outline-none focus:border-emerald-400 lg:w-auto"
+        />
       </div>
+
       {fields.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-[#07111B] p-8 text-center text-slate-400">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-500">
           Nenhuma quadra ativa encontrada para esta arena. Cadastre ou ative as quadras em <strong>Quadras</strong>.
         </div>
       ) : (
-      <div className="overflow-x-auto">
-        <div
-          className="overflow-hidden rounded-2xl border border-white/10"
-          style={{
-            display: "grid",
-            minWidth: `${90 + fields.length * 220}px`,
-            gridTemplateColumns: `90px repeat(${fields.length}, minmax(220px, 1fr))`,
-          }}
-        >
-          <div className="border-b border-r border-white/10 bg-[#07111B] p-3 text-sm font-bold text-slate-300">Horário</div>
-          {fields.map((field) => <div key={field.id} className="border-b border-r border-white/10 bg-[#07111B] p-3 text-center text-sm font-bold text-white">{field.name}</div>)}
-          {agendaTimes.map((time) => (
-            <React.Fragment key={time}>
-              <div className="border-r border-t border-white/10 bg-[#07111B] p-3 text-sm font-bold text-slate-400">{time}</div>
-              {fields.map((field) => {
-                const booking = getBookingAtTime(bookings, field.id, selectedDate, time);
-                const recurring = getRecurringAtTime(recurringBookings, field.id, time);
-                const block = getBlockAtTime(blocks, field.id, selectedDate, time);
-                const occupied = isTimeInsideBooking(bookings, field.id, selectedDate, time) || isTimeInsideRecurring(recurringBookings, field.id, time) || isTimeInsideBlock(blocks, field.id, selectedDate, time);
-                if (occupied && !booking && !recurring && !block) return <div key={`${field.id}-${time}`} className="border-r border-t border-white/10 bg-slate-900/50" />;
-                return (
-                  <div key={`${field.id}-${time}`} className="min-h-16 border-r border-t border-white/10 bg-[#07111B]/70 p-2">
-                    {booking ? <BookingCard booking={booking} /> : recurring ? <RecurringCard booking={recurring} /> : block ? <BlockCard block={block} /> : <button type="button" onClick={() => onFreeClick(field.id, time)} className="h-full min-h-10 w-full rounded-xl border border-dashed border-white/10 text-xs text-slate-500 hover:border-[#22C55E] hover:text-[#22C55E]">Livre</button>}
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
+        <>
+          <div className="grid gap-3 md:hidden">
+            <div className="grid grid-cols-3 gap-2">
+              <MobileAgendaMetric label="Reservas" value={dayBookings.length} />
+              <MobileAgendaMetric label="Fixas" value={recurringBookings.length} />
+              <MobileAgendaMetric label="Bloqueios" value={dayBlocks.length} />
+            </div>
+
+            <div className="space-y-4">
+              {fields.map((field) => (
+                <MobileFieldAgenda
+                  key={field.id}
+                  field={field}
+                  selectedDate={selectedDate}
+                  agendaTimes={agendaTimes}
+                  bookings={bookings}
+                  recurringBookings={recurringBookings}
+                  blocks={blocks}
+                  onFreeClick={onFreeClick}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
+            <div
+              className="overflow-hidden rounded-2xl border border-slate-200"
+              style={{
+                display: "grid",
+                minWidth: `${90 + fields.length * 220}px`,
+                gridTemplateColumns: `90px repeat(${fields.length}, minmax(220px, 1fr))`,
+              }}
+            >
+              <div className="border-b border-r border-slate-200 bg-white p-3 text-sm font-bold text-slate-600">Horário</div>
+              {fields.map((field) => <div key={field.id} className="border-b border-r border-slate-200 bg-white p-3 text-center text-sm font-bold text-slate-950">{field.name}</div>)}
+              {agendaTimes.map((time) => (
+                <React.Fragment key={time}>
+                  <div className="border-r border-t border-slate-200 bg-white p-3 text-sm font-bold text-slate-500">{time}</div>
+                  {fields.map((field) => {
+                    const booking = getBookingAtTime(bookings, field.id, selectedDate, time);
+                    const recurring = getRecurringAtTime(recurringBookings, field.id, time);
+                    const block = getBlockAtTime(blocks, field.id, selectedDate, time);
+                    const occupied = isTimeInsideBooking(bookings, field.id, selectedDate, time) || isTimeInsideRecurring(recurringBookings, field.id, time) || isTimeInsideBlock(blocks, field.id, selectedDate, time);
+                    if (occupied && !booking && !recurring && !block) return <div key={`${field.id}-${time}`} className="border-r border-t border-slate-200 bg-slate-900/50" />;
+                    return (
+                      <div key={`${field.id}-${time}`} className="min-h-16 border-r border-t border-slate-200 bg-white/70 p-2">
+                        {booking ? <BookingCard booking={booking} /> : recurring ? <RecurringCard booking={recurring} /> : block ? <BlockCard block={block} /> : <button type="button" onClick={() => onFreeClick(field.id, time)} className="h-full min-h-10 w-full rounded-xl border border-dashed border-slate-200 text-xs text-slate-500 hover:border-[#22C55E] hover:text-[#22C55E]">Livre</button>}
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </section>
+  );
+}
+
+function MobileAgendaMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center">
+      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function MobileFieldAgenda({
+  field,
+  selectedDate,
+  agendaTimes,
+  bookings,
+  recurringBookings,
+  blocks,
+  onFreeClick,
+}: {
+  field: Field;
+  selectedDate: string;
+  agendaTimes: string[];
+  bookings: Booking[];
+  recurringBookings: RecurringBooking[];
+  blocks: ScheduleBlock[];
+  onFreeClick: (fieldId: string, time: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-slate-950">{field.name}</h3>
+          <p className="text-xs text-slate-500">{field.sport || "Quadra"}</p>
+        </div>
+
+        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+          {field.status || "ativa"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {agendaTimes.map((time) => {
+          const booking = getBookingAtTime(bookings, field.id, selectedDate, time);
+          const recurring = getRecurringAtTime(recurringBookings, field.id, time);
+          const block = getBlockAtTime(blocks, field.id, selectedDate, time);
+          const occupied = isTimeInsideBooking(bookings, field.id, selectedDate, time) || isTimeInsideRecurring(recurringBookings, field.id, time) || isTimeInsideBlock(blocks, field.id, selectedDate, time);
+
+          if (occupied && !booking && !recurring && !block) {
+            return (
+              <div key={`${field.id}-${time}`} className="rounded-2xl border border-slate-200 bg-slate-900/60 p-3">
+                <p className="text-sm font-black text-slate-500">{time}</p>
+                <p className="mt-1 text-xs text-slate-600">Ocupado</p>
+              </div>
+            );
+          }
+
+          if (booking) {
+            return <MobileSlotCard key={`${field.id}-${time}`} time={time} type="booking" title={booking.customer_name} subtitle={`R$ ${formatMoney(booking.amount)}`} />;
+          }
+
+          if (recurring) {
+            return <MobileSlotCard key={`${field.id}-${time}`} time={time} type="recurring" title={recurring.customer_name} subtitle="Reserva fixa" />;
+          }
+
+          if (block) {
+            return <MobileSlotCard key={`${field.id}-${time}`} time={time} type="block" title={block.title} subtitle="Bloqueio" />;
+          }
+
+          return (
+            <button
+              key={`${field.id}-${time}`}
+              type="button"
+              onClick={() => onFreeClick(field.id, time)}
+              className="rounded-2xl border border-dashed border-slate-200 bg-white p-3 text-left transition hover:border-[#22C55E]"
+            >
+              <p className="text-sm font-black text-slate-950">{time}</p>
+              <p className="mt-1 text-xs font-bold text-emerald-700">Livre • tocar para reservar</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MobileSlotCard({ time, type, title, subtitle }: { time: string; type: "booking" | "recurring" | "block"; title: string; subtitle: string }) {
+  const cls =
+    type === "booking"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-100"
+      : type === "recurring"
+        ? "border-violet-500/20 bg-violet-500/10 text-violet-100"
+        : "border-slate-500/20 bg-slate-500/10 text-slate-700";
+
+  return (
+    <div className={`rounded-2xl border p-3 ${cls}`}>
+      <p className="text-sm font-black">{time}</p>
+      <p className="mt-1 truncate text-xs font-black">{title}</p>
+      <p className="text-[11px] opacity-75">{subtitle}</p>
+    </div>
   );
 }
 
 function NewBookingForm(props: { form: typeof emptyBookingForm; setForm: (form: typeof emptyBookingForm) => void; searchType: "name" | "whatsapp"; setSearchType: (value: "name" | "whatsapp") => void; customerSearch: string; onCustomerSearch: (value: string) => void; customers: Customer[]; onSelectCustomer: (customer: Customer) => void; fields: Field[]; pricingOptions: PricingOption[]; selectedPricing?: PricingOption; amount: number; endTime: string; availableTimes: string[]; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>; onSubmit: (e: React.FormEvent) => void; saving: boolean }) {
   const { form, setForm, onSubmit, saving } = props;
   return (
-    <form onSubmit={onSubmit} className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-6">
+    <form onSubmit={onSubmit} className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl shadow-black/10 sm:p-6">
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <CustomerSearchBox {...props} />
         <Input label="Nome do cliente" name="customer_name" value={form.customer_name} onChange={props.onChange} />
@@ -973,16 +1162,16 @@ function NewBookingForm(props: { form: typeof emptyBookingForm; setForm: (form: 
         <Select label="Duração e preço" name="pricing_option_id" value={form.pricing_option_id} onChange={props.onChange} options={props.pricingOptions.map((option) => ({ value: option.id, label: `${durationLabels[option.duration_minutes] || `${option.duration_minutes} min`} - R$ ${formatMoney(option.price)}` }))} />
         <Input label="Data" name="booking_date" type="date" value={form.booking_date} onChange={props.onChange} />
         <Select label="Status" name="status" value={form.status} onChange={props.onChange} options={statusOptions} />
-        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-[#07111B] p-4">
-          <h3 className="font-bold text-white">Horários disponíveis</h3>
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-            {props.availableTimes.map((time) => <button key={time} type="button" onClick={() => setForm({ ...form, start_time: time })} className={form.start_time === time ? "rounded-xl bg-[#22C55E] px-3 py-3 text-sm font-bold text-black" : "rounded-xl border border-white/10 bg-[#0F172A] px-3 py-3 text-sm text-white hover:border-[#22C55E]"}>{time}</button>)}
+        <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="font-bold text-slate-950">Horários disponíveis</h3>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6">
+            {props.availableTimes.map((time) => <button key={time} type="button" onClick={() => setForm({ ...form, start_time: time })} className={form.start_time === time ? "rounded-xl bg-[#22C55E] px-3 py-3 text-sm font-bold text-black" : "rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 hover:border-[#22C55E]"}>{time}</button>)}
           </div>
         </div>
-        <div className="md:col-span-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-          <p className="text-sm text-slate-300">Resumo</p>
-          <p className="mt-2 text-white">{form.start_time && props.endTime ? `${form.start_time} até ${props.endTime}` : "Escolha um horário"}</p>
-          <p className="mt-1 text-2xl font-bold text-white">R$ {formatMoney(props.amount)}</p>
+        <div className="md:col-span-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm text-slate-600">Resumo</p>
+          <p className="mt-2 text-slate-950">{form.start_time && props.endTime ? `${form.start_time} até ${props.endTime}` : "Escolha um horário"}</p>
+          <p className="mt-1 text-2xl font-bold text-slate-950">R$ {formatMoney(props.amount)}</p>
         </div>
         <Textarea label="Observações" name="notes" value={form.notes} onChange={props.onChange} />
       </div>
@@ -997,7 +1186,7 @@ function RecurringForm(props: { form: typeof emptyRecurringForm; setForm: (form:
   const entryAmount = Number(form.entry_amount || 0);
   const balance = Math.max(monthlyAmount - entryAmount, 0);
   return (
-    <form onSubmit={onSubmit} className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-6">
+    <form onSubmit={onSubmit} className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl shadow-black/10 sm:p-6">
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <CustomerSearchBox {...props} />
         <Input label="Nome do cliente" name="customer_name" value={form.customer_name} onChange={props.onChange} />
@@ -1008,8 +1197,8 @@ function RecurringForm(props: { form: typeof emptyRecurringForm; setForm: (form:
         <Input label="Horário final" name="end_time" type="time" value={form.end_time} onChange={props.onChange} />
         <Input label="Data de início" name="start_date" type="date" value={form.start_date} onChange={props.onChange} />
         <Input label="Data final opcional" name="end_date" type="date" value={form.end_date} onChange={props.onChange} />
-        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-[#07111B] p-5">
-          <h3 className="mb-4 flex items-center gap-2 text-xl font-bold text-white"><Wallet size={20} /> Financeiro do mensalista</h3>
+        <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-4 flex items-center gap-2 text-xl font-bold text-slate-950"><Wallet size={20} /> Financeiro do mensalista</h3>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Select label="Tipo de cobrança" name="billing_type" value={form.billing_type} onChange={props.onChange} options={[{ value: "weekly", label: "Semanal / apenas bloquear horário" }, { value: "monthly", label: "Mensalista recorrente" }]} />
             {form.billing_type === "monthly" && <Select label="Forma de pagamento" name="payment_mode" value={form.payment_mode} onChange={props.onChange} options={[{ value: "no_entry", label: "Sem entrada" }, { value: "entry_balance", label: "Entrada + saldo" }, { value: "paid_upfront", label: "Pago antecipado" }]} />}
@@ -1021,7 +1210,7 @@ function RecurringForm(props: { form: typeof emptyRecurringForm; setForm: (form:
             {form.billing_type === "monthly" && <Input label="Tolerância atraso (dias)" name="overdue_tolerance_days" type="number" value={form.overdue_tolerance_days} onChange={props.onChange} />}
           </div>
           {form.billing_type === "monthly" && (
-            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-slate-200">
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-slate-700">
               <p><strong>Valor mensal:</strong> R$ {formatMoney(monthlyAmount)}</p>
               {form.payment_mode === "entry_balance" && <p><strong>Saldo restante:</strong> R$ {formatMoney(balance)}</p>}
               <label className="mt-3 flex items-center gap-2"><input type="checkbox" name="block_if_overdue" checked={Boolean(form.block_if_overdue)} onChange={props.onChange} /> Bloquear se estiver inadimplente</label>
@@ -1037,13 +1226,13 @@ function RecurringForm(props: { form: typeof emptyRecurringForm; setForm: (form:
 
 function CustomerSearchBox(props: { searchType: "name" | "whatsapp"; setSearchType: (value: "name" | "whatsapp") => void; customerSearch: string; onCustomerSearch: (value: string) => void; customers: Customer[]; onSelectCustomer: (customer: Customer) => void }) {
   return (
-    <div className="md:col-span-2 rounded-2xl border border-white/10 bg-[#07111B] p-4">
-      <h3 className="font-bold text-white">Cliente</h3>
+    <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="font-bold text-slate-950">Cliente</h3>
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[180px_1fr]">
-        <select value={props.searchType} onChange={(e) => props.setSearchType(e.target.value as "name" | "whatsapp")} className="rounded-xl border border-white/10 bg-[#0F172A] p-3 text-white outline-none"><option value="name">Buscar por nome</option><option value="whatsapp">Buscar por WhatsApp</option></select>
-        <input value={props.customerSearch} onChange={(e) => props.onCustomerSearch(e.target.value)} placeholder={props.searchType === "name" ? "Digite o nome" : "Digite apenas números"} className="rounded-xl border border-white/10 bg-[#0F172A] p-3 text-white outline-none" />
+        <select value={props.searchType} onChange={(e) => props.setSearchType(e.target.value as "name" | "whatsapp")} className="rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none"><option value="name">Buscar por nome</option><option value="whatsapp">Buscar por WhatsApp</option></select>
+        <input value={props.customerSearch} onChange={(e) => props.onCustomerSearch(e.target.value)} placeholder={props.searchType === "name" ? "Digite o nome" : "Digite apenas números"} className="rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" />
       </div>
-      {props.customerSearch && props.customers.length > 0 && <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">{props.customers.map((customer) => <button key={customer.id} type="button" onClick={() => props.onSelectCustomer(customer)} className="rounded-xl border border-white/10 bg-[#0F172A] p-3 text-left hover:border-[#22C55E]"><strong className="block text-white">{customer.name}</strong><span className="text-sm text-slate-400">+{customer.whatsapp}</span></button>)}</div>}
+      {props.customerSearch && props.customers.length > 0 && <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">{props.customers.map((customer) => <button key={customer.id} type="button" onClick={() => props.onSelectCustomer(customer)} className="rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-[#22C55E]"><strong className="block text-slate-950">{customer.name}</strong><span className="text-sm text-slate-500">+{customer.whatsapp}</span></button>)}</div>}
     </div>
   );
 }
@@ -1053,10 +1242,10 @@ function BlocksView({ form, setForm, fields, blocks, onSubmit, saving, onOpen, o
   const activeBlocks = blocks.filter((block) => block.status === "active");
   return (
     <div className="space-y-8">
-      <form onSubmit={onSubmit} className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-6">
+      <form onSubmit={onSubmit} className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl shadow-black/10 sm:p-6">
         <div>
-          <h2 className="text-2xl font-bold text-white">Novo bloqueio</h2>
-          <p className="mt-1 text-sm text-slate-400">Use para manutenção, evento interno, campeonato, feriado ou quadra indisponível.</p>
+          <h2 className="text-2xl font-bold text-slate-950">Novo bloqueio</h2>
+          <p className="mt-1 text-sm text-slate-500">Use para manutenção, evento interno, campeonato, feriado ou quadra indisponível.</p>
         </div>
         <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
           <Input label="Título" name="title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Manutenção / Evento interno" />
@@ -1073,20 +1262,20 @@ function BlocksView({ form, setForm, fields, blocks, onSubmit, saving, onOpen, o
       <ListSection title="Bloqueios cadastrados">
         {activeBlocks.length === 0 && <EmptyState text="Nenhum bloqueio ativo cadastrado." />}
         {activeBlocks.map((block) => (
-          <div key={block.id} className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-5 shadow-xl shadow-black/10">
+          <div key={block.id} className="rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-xl shadow-black/10">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <button type="button" onClick={() => onOpen(block)} className="flex-1 text-left">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-black text-white">{block.title}</h3>
-                  <span className="rounded-full bg-slate-500/10 px-3 py-1 text-xs font-bold text-slate-300">{getReasonLabel(block.reason)}</span>
+                  <h3 className="text-lg font-black text-slate-950">{block.title}</h3>
+                  <span className="rounded-full bg-slate-500/10 px-3 py-1 text-xs font-bold text-slate-600">{getReasonLabel(block.reason)}</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-2 text-sm text-slate-500">
                   {getFieldName(block.fields)} • {formatDate(block.block_date)} • {block.start_time.slice(0, 5)} às {block.end_time.slice(0, 5)}
                 </p>
                 {block.notes && <p className="mt-1 text-sm text-slate-500">{block.notes}</p>}
               </button>
               <div className="flex items-center gap-2">
-                <button onClick={() => onOpen(block)} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/5"><Edit3 size={16} /></button>
+                <button onClick={() => onOpen(block)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Edit3 size={16} /></button>
                 <button onClick={() => onCancel(block.id)} className="rounded-xl border border-red-500/30 px-3 py-2 text-red-300 transition hover:bg-red-500/10"><Trash2 size={16} /></button>
               </div>
             </div>
@@ -1108,7 +1297,7 @@ function BlockActionModal({ block, fields, onClose, onSave, onCancel }: { block:
         <ModalInput label="Data" type="date" value={form.block_date} onChange={(value) => setForm({ ...form, block_date: value })} />
         <ModalInput label="Início" type="time" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
         <ModalInput label="Fim" type="time" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
-        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-200">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" /></label>
+        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-700">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" /></label>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-3">
         <ActionButton label="Cancelar bloqueio" danger onClick={() => onCancel(block.id)} />
@@ -1130,19 +1319,19 @@ function BookingList({ bookings, onOpen, onStatus, onCancel }: { bookings: Booki
           className={
             booking.status === "aguardando_sinal"
               ? "rounded-3xl border border-yellow-500/20 bg-yellow-500/10 p-5 shadow-xl shadow-black/10"
-              : "rounded-3xl border border-white/10 bg-[#0F172A]/80 p-5 shadow-xl shadow-black/10"
+              : "rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-xl shadow-black/10"
           }
         >
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <button type="button" onClick={() => onOpen(booking)} className="flex-1 text-left">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-black text-white">{booking.customer_name}</h3>
+                <h3 className="text-lg font-black text-slate-950">{booking.customer_name}</h3>
                 <StatusBadge status={booking.status} />
               </div>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-sm text-slate-500">
                 {getFieldName(booking.fields)} • {formatDate(booking.booking_date)} • {booking.start_time.slice(0, 5)} às {booking.end_time.slice(0, 5)}
               </p>
-              <p className="mt-1 text-sm font-bold text-emerald-300">R$ {formatMoney(booking.amount)}</p>
+              <p className="mt-1 text-sm font-bold text-emerald-700">R$ {formatMoney(booking.amount)}</p>
             </button>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1156,7 +1345,7 @@ function BookingList({ bookings, onOpen, onStatus, onCancel }: { bookings: Booki
               <QuickAction label="Confirmar" icon={<CheckCircle2 size={16} />} onClick={() => onStatus(booking.id, "confirmada")} />
               <QuickAction label="Check-in" icon={<PlayCircle size={16} />} onClick={() => onStatus(booking.id, "em_andamento")} />
               <QuickAction label="Concluir" icon={<CheckCircle2 size={16} />} onClick={() => onStatus(booking.id, "concluida")} />
-              <button onClick={() => onOpen(booking)} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/5"><Edit3 size={16} /></button>
+              <button onClick={() => onOpen(booking)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Edit3 size={16} /></button>
               {booking.status !== "cancelada" && <button onClick={() => onCancel(booking.id)} className="rounded-xl border border-red-500/30 px-3 py-2 text-red-300 transition hover:bg-red-500/10"><Trash2 size={16} /></button>}
             </div>
           </div>
@@ -1202,32 +1391,32 @@ function RecurringList({
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <button type="button" onClick={() => onOpen(booking)} className="flex-1 text-left">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-black text-white">{booking.customer_name}</h3>
+                  <h3 className="text-lg font-black text-slate-950">{booking.customer_name}</h3>
 
                   <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-bold text-yellow-200">
                     Aguardando aprovação
                   </span>
 
                   {booking.source === "public_link" && (
-                    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300">
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
                       Link público
                     </span>
                   )}
                 </div>
 
-                <p className="mt-2 text-sm text-slate-300">
+                <p className="mt-2 text-sm text-slate-600">
                   {getFieldName(booking.fields)} • {getWeekdayLabel(booking.weekday)} •{" "}
                   {booking.start_time.slice(0, 5)} às {booking.end_time.slice(0, 5)}
                 </p>
 
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-slate-500">
                   Início: {formatDate(booking.start_date)}
                   {booking.requested_at
                     ? ` • Solicitado em ${formatDate(booking.requested_at.slice(0, 10))}`
                     : ""}
                 </p>
 
-                {booking.notes && <p className="mt-2 text-sm text-slate-400">{booking.notes}</p>}
+                {booking.notes && <p className="mt-2 text-sm text-slate-500">{booking.notes}</p>}
               </button>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1250,7 +1439,7 @@ function RecurringList({
                 <button
                   type="button"
                   onClick={() => onOpen(booking)}
-                  className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/5"
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
                 >
                   <Edit3 size={16} />
                 </button>
@@ -1268,28 +1457,28 @@ function RecurringList({
         {activeAndPaused.map((booking) => (
           <div
             key={booking.id}
-            className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-5 shadow-xl shadow-black/10"
+            className="rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-xl shadow-black/10"
           >
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <button type="button" onClick={() => onOpen(booking)} className="flex-1 text-left">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-black text-white">{booking.customer_name}</h3>
+                  <h3 className="text-lg font-black text-slate-950">{booking.customer_name}</h3>
                   <StatusBadge status={booking.status} />
 
                   {booking.billing_type === "monthly" && (
-                    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300">
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
                       Mensalista
                     </span>
                   )}
                 </div>
 
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-2 text-sm text-slate-500">
                   {getFieldName(booking.fields)} • {getWeekdayLabel(booking.weekday)} •{" "}
                   {booking.start_time.slice(0, 5)} às {booking.end_time.slice(0, 5)}
                 </p>
 
                 {booking.billing_type === "monthly" && (
-                  <p className="mt-1 text-sm font-bold text-emerald-300">
+                  <p className="mt-1 text-sm font-bold text-emerald-700">
                     R$ {formatMoney(booking.monthly_amount || 0)} • vence dia{" "}
                     {booking.due_day || 15} • {booking.payment_status || "pending"}
                   </p>
@@ -1312,7 +1501,7 @@ function RecurringList({
                 <button
                   type="button"
                   onClick={() => onOpen(booking)}
-                  className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/5"
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
                 >
                   <Edit3 size={16} />
                 </button>
@@ -1350,7 +1539,7 @@ function BookingActionModal({ booking, fields, onClose, onSave, onStatus, onCanc
         <ModalInput label="Fim" type="time" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
         <ModalInput label="Valor" value={String(form.amount || "")} onChange={(value) => setForm({ ...form, amount: Number(value.replace(",", ".") || 0) })} />
         <ModalSelect label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={[...statusOptions, { value: "em_andamento", label: "Em andamento" }]} />
-        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-200">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" /></label>
+        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-700">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" /></label>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -1384,7 +1573,7 @@ function RecurringActionModal({ booking, fields, onClose, onSave, onStatus, onDi
         <ModalInput label="Pago" value={String(form.paid_amount || 0)} onChange={(value) => setForm({ ...form, paid_amount: Number(value.replace(",", ".") || 0) })} />
         <ModalSelect label="Status pagamento" value={form.payment_status || "pending"} onChange={(value) => setForm({ ...form, payment_status: value })} options={[{ value: "pending", label: "Pendente" }, { value: "paid", label: "Pago" }, { value: "partial", label: "Parcial" }]} />
         <ModalSelect label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={[{ value: "active", label: "Ativa" }, { value: "paused", label: "Pausada" }, { value: "inactive", label: "Inativa" }]} />
-        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-200">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" /></label>
+        <label className="md:col-span-2"><span className="text-sm font-bold text-slate-700">Observações</span><textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" /></label>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -1400,10 +1589,10 @@ function RecurringActionModal({ booking, fields, onClose, onSave, onStatus, onDi
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0F172A] p-6 shadow-2xl shadow-black/50">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl shadow-black/50">
         <div className="mb-5 flex items-center justify-between gap-4">
-          <div><p className="text-sm font-bold text-emerald-400">Ações operacionais</p><h2 className="text-2xl font-black text-white">{title}</h2></div>
-          <button onClick={onClose} className="rounded-xl border border-white/10 p-2 text-slate-300 hover:bg-white/5"><X size={20} /></button>
+          <div><p className="text-sm font-bold text-emerald-600">Ações operacionais</p><h2 className="text-2xl font-black text-slate-950">{title}</h2></div>
+          <button onClick={onClose} className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><X size={20} /></button>
         </div>
         {children}
       </div>
@@ -1412,45 +1601,45 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
 }
 
 function ModalInput({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label><span className="text-sm font-bold text-slate-200">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none focus:border-emerald-500" /></label>;
+  return <label><span className="text-sm font-bold text-slate-700">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" /></label>;
 }
 
 function ModalSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: SelectOption[] }) {
-  return <label><span className="text-sm font-bold text-slate-200">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none focus:border-emerald-500">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+  return <label><span className="text-sm font-bold text-slate-700">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
 function QuickAction({ label, icon, onClick }: { label: string; icon: React.ReactNode; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="flex items-center gap-1 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-emerald-500/40 hover:bg-emerald-500/10">{icon}{label}</button>;
+  return <button type="button" onClick={onClick} className="flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-emerald-500/40 hover:bg-emerald-50">{icon}{label}</button>;
 }
 
 function ActionButton({ label, onClick, primary, danger }: { label: string; onClick: () => void; primary?: boolean; danger?: boolean }) {
-  return <button type="button" onClick={onClick} className={primary ? "rounded-xl bg-emerald-500 px-4 py-3 font-black text-black" : danger ? "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 font-bold text-red-300" : "rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-bold text-white"}>{label}</button>;
+  return <button type="button" onClick={onClick} className={primary ? "rounded-xl bg-slate-950 px-4 py-3 font-black text-white" : danger ? "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 font-bold text-red-300" : "rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold text-slate-950"}>{label}</button>;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const label: Record<string, string> = { pendente: "Pendente", aguardando_sinal: "Aguardando sinal", confirmada: "Confirmada", em_andamento: "Check-in", concluida: "Concluída", cancelada: "Cancelada", active: "Ativa", paused: "Pausada", inactive: "Inativa", pending: "Pendente", rejected: "Recusada", approved: "Aprovada" };
-  const tone = status === "cancelada" || status === "inactive" ? "bg-red-500/10 text-red-300" : status === "concluida" || status === "confirmada" || status === "active" ? "bg-emerald-500/10 text-emerald-300" : "bg-yellow-500/10 text-yellow-300";
+  const tone = status === "cancelada" || status === "inactive" ? "bg-red-500/10 text-red-300" : status === "concluida" || status === "confirmada" || status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-yellow-500/10 text-yellow-300";
   return <span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>{label[status] || status}</span>;
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-3xl border border-dashed border-white/10 bg-[#0F172A]/60 p-8 text-center text-slate-400">{text}</div>;
+  return <div className="rounded-3xl border border-dashed border-slate-200 bg-white/60 p-8 text-center text-slate-500">{text}</div>;
 }
 
 function SummaryView({ todayCount, recurringCount, dayTotal, monthlyCount }: { todayCount: number; recurringCount: number; dayTotal: number; monthlyCount: number }) {
   return <div className="grid grid-cols-1 gap-5 md:grid-cols-4"><SummaryCard title="Reservas do dia" value={String(todayCount)} icon={<CalendarDays />} /><SummaryCard title="Fixas ativas" value={String(recurringCount)} icon={<Users />} /><SummaryCard title="Mensalistas" value={String(monthlyCount)} icon={<Wallet />} /><SummaryCard title="Total do dia" value={`R$ ${formatMoney(dayTotal)}`} icon={<Save />} /></div>;
 }
 
-function ListSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="space-y-3"><h2 className="text-2xl font-bold text-white">{title}</h2>{children}</section>; }
-function SummaryCard({ title, value, icon }: { title: string; value: string; icon: React.ReactNode }) { return <div className="rounded-3xl border border-white/10 bg-[#0F172A]/80 p-5"><div className="mb-3 text-[#22C55E]">{icon}</div><p className="text-sm text-slate-400">{title}</p><h3 className="mt-1 text-3xl font-black text-white">{value}</h3></div>; }
-function BookingCard({ booking }: { booking: Booking }) { return <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-3"><p className="font-bold text-white">{booking.customer_name}</p><p className="text-xs text-slate-300">{booking.start_time.slice(0, 5)} até {booking.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-emerald-300">R$ {formatMoney(booking.amount)}</p></div>; }
-function RecurringCard({ booking }: { booking: RecurringBooking }) { return <div className="rounded-xl border border-indigo-500/40 bg-indigo-500/15 p-3"><p className="font-bold text-white">{booking.customer_name}</p><p className="text-xs text-slate-300">{booking.start_time.slice(0, 5)} até {booking.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-indigo-300">FIXA</p></div>; }
-function BlockCard({ block }: { block: ScheduleBlock }) { return <div className="rounded-xl border border-slate-500/40 bg-slate-500/15 p-3"><p className="font-bold text-white">{block.title}</p><p className="text-xs text-slate-300">{block.start_time.slice(0, 5)} até {block.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-slate-300">BLOQUEADO</p></div>; }
+function ListSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="space-y-3"><h2 className="text-2xl font-bold text-slate-950">{title}</h2>{children}</section>; }
+function SummaryCard({ title, value, icon }: { title: string; value: string; icon: React.ReactNode }) { return <div className="rounded-3xl border border-slate-200 bg-white/80 p-5"><div className="mb-3 text-[#22C55E]">{icon}</div><p className="text-sm text-slate-500">{title}</p><h3 className="mt-1 text-3xl font-black text-slate-950">{value}</h3></div>; }
+function BookingCard({ booking }: { booking: Booking }) { return <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-3"><p className="font-bold text-slate-950">{booking.customer_name}</p><p className="text-xs text-slate-600">{booking.start_time.slice(0, 5)} até {booking.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-emerald-700">R$ {formatMoney(booking.amount)}</p></div>; }
+function RecurringCard({ booking }: { booking: RecurringBooking }) { return <div className="rounded-xl border border-indigo-500/40 bg-indigo-500/15 p-3"><p className="font-bold text-slate-950">{booking.customer_name}</p><p className="text-xs text-slate-600">{booking.start_time.slice(0, 5)} até {booking.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-indigo-300">FIXA</p></div>; }
+function BlockCard({ block }: { block: ScheduleBlock }) { return <div className="rounded-xl border border-slate-500/40 bg-slate-500/15 p-3"><p className="font-bold text-slate-950">{block.title}</p><p className="text-xs text-slate-600">{block.start_time.slice(0, 5)} até {block.end_time.slice(0, 5)}</p><p className="text-xs font-bold text-slate-600">BLOQUEADO</p></div>; }
 function SaveButton({ saving, label }: { saving: boolean; label: string }) { return <button disabled={saving} className="mt-6 flex items-center gap-2 rounded-xl bg-[#22C55E] px-6 py-3 font-bold text-black disabled:opacity-60"><Save size={18} />{saving ? "Salvando..." : label}</button>; }
-function Input({ label, name, value, onChange, type = "text", placeholder = "" }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>; type?: string; placeholder?: string }) { return <label><span className="text-sm font-medium text-slate-200">{label}</span><input name={name} type={type} value={value} placeholder={placeholder} onChange={onChange} className="mt-2 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" /></label>; }
-function Textarea({ label, name, value, onChange }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> }) { return <label className="md:col-span-2"><span className="text-sm font-medium text-slate-200">{label}</span><textarea name={name} value={value} onChange={onChange} className="mt-2 min-h-24 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none" /></label>; }
-function WhatsappInput({ value, onChange }: { value: string; onChange: (value: string) => void }) { return <label><span className="text-sm font-medium text-slate-200">WhatsApp</span><div className="mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-[#07111B]"><span className="flex items-center border-r border-white/10 px-4 font-bold text-[#22C55E]">+55</span><input value={value.replace(/^55/, "")} onChange={(e) => onChange(e.target.value.replace(/\D/g, "").replace(/^55/, ""))} className="w-full bg-transparent p-3 text-white outline-none" /></div></label>; }
-function Select({ label, name, value, onChange, options }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>; options: SelectOption[] }) { return <label><span className="text-sm font-medium text-slate-200">{label}</span><select name={name} value={value} onChange={onChange} className="mt-2 w-full rounded-xl border border-white/10 bg-[#07111B] p-3 text-white outline-none"><option value="">Selecione</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
+function Input({ label, name, value, onChange, type = "text", placeholder = "" }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>; type?: string; placeholder?: string }) { return <label><span className="text-sm font-medium text-slate-700">{label}</span><input name={name} type={type} value={value} placeholder={placeholder} onChange={onChange} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" /></label>; }
+function Textarea({ label, name, value, onChange }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> }) { return <label className="md:col-span-2"><span className="text-sm font-medium text-slate-700">{label}</span><textarea name={name} value={value} onChange={onChange} className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none" /></label>; }
+function WhatsappInput({ value, onChange }: { value: string; onChange: (value: string) => void }) { return <label><span className="text-sm font-medium text-slate-700">WhatsApp</span><div className="mt-2 flex overflow-hidden rounded-xl border border-slate-200 bg-white"><span className="flex items-center border-r border-slate-200 px-4 font-bold text-[#22C55E]">+55</span><input value={value.replace(/^55/, "")} onChange={(e) => onChange(e.target.value.replace(/\D/g, "").replace(/^55/, ""))} className="w-full bg-transparent p-3 text-slate-950 outline-none" /></div></label>; }
+function Select({ label, name, value, onChange, options }: { label: string; name: string; value: string; onChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>; options: SelectOption[] }) { return <label><span className="text-sm font-medium text-slate-700">{label}</span><select name={name} value={value} onChange={onChange} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-950 outline-none"><option value="">Selecione</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
 
 function getView(value: string | null): View { if (value === "nova" || value === "fixa" || value === "lista" || value === "fixas" || value === "resumo" || value === "bloqueios") return value; return "agenda"; }
 function filterCustomers(customers: Customer[], search: string, type: "name" | "whatsapp") { const text = search.toLowerCase().trim(); const number = search.replace(/\D/g, ""); if (!search) return customers.slice(0, 6); return customers.filter((customer) => type === "name" ? customer.name.toLowerCase().includes(text) : customer.whatsapp.includes(number)).slice(0, 8); }

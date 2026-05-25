@@ -1,1224 +1,963 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowRight,
+  Bot,
   Building2,
-  CalendarDays,
   CheckCircle2,
+  ChevronRight,
+  Clock3,
   Copy,
-  CreditCard,
+  Crown,
+  Edit3,
+  Eye,
   Loader2,
   Lock,
   MessageCircle,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
-  Unlock,
-  Wallet,
-  XCircle,
-  Plus,
-  UserPlus,
+  Sparkles,
+  Trash2,
+  TrendingUp,
+  UserRound,
+  WalletCards,
   X,
-  KeyRound,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+
+type PlanKey = "essential" | "pro";
+type AdminView = "overview" | "trial" | "trial_expired" | "active" | "overdue" | "blocked" | "essential" | "pro";
 
 type Arena = {
   id: string;
   name: string;
   slug: string | null;
   whatsapp: string | null;
+  phone: string | null;
   subscription_status: string | null;
   blocked_reason: string | null;
   created_at: string;
 };
 
+type Plan = {
+  id: string;
+  plan_key: PlanKey | string;
+  name: string;
+  description: string | null;
+  monthly_price: number;
+  implementation_price: number;
+  max_arenas: number;
+  allow_multi_arena: boolean;
+  is_active: boolean;
+};
+
 type Subscription = {
   id: string;
   arena_id: string;
-  plan_name: string | null;
-  monthly_amount: number | null;
-  due_day: number | null;
+  plan_key: PlanKey | string | null;
+  billing_provider: string | null;
   status: string | null;
+  lifecycle_stage: string | null;
+  asaas_status: string | null;
+  monthly_amount: number | null;
   next_due_date: string | null;
-  last_paid_at: string | null;
+  asaas_next_due_date: string | null;
+  asaas_customer_id: string | null;
+  asaas_subscription_id: string | null;
+  asaas_last_payment_id: string | null;
+  asaas_last_pix_payload: string | null;
+  max_arenas: number | null;
+  allow_multi_arena: boolean | null;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  activated_at: string | null;
   blocked_at: string | null;
-  payment_pix_key: string | null;
-  payment_whatsapp: string | null;
-  notes: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_cpf_cnpj: string | null;
   created_at: string;
 };
 
-type SubscriptionInvoice = {
+type Payment = {
   id: string;
-  arena_id: string;
+  arena_id: string | null;
   subscription_id: string | null;
-  reference_month: string | null;
-  due_date: string;
-  amount: number;
-  paid_amount: number | null;
   status: string | null;
-  paid_at: string | null;
-  notes: string | null;
+  value: number | null;
+  due_date: string | null;
+  payment_date: string | null;
   created_at: string;
 };
 
 type AdminRow = {
   arena: Arena;
   subscription: Subscription | null;
-  currentInvoice: SubscriptionInvoice | null;
-  invoices: SubscriptionInvoice[];
+  plan: Plan | null;
+  payments: Payment[];
+  status: string;
+  trialDaysLeft: number | null;
+};
+
+const today = new Date().toISOString().slice(0, 10);
+
+const initialCreateForm = {
+  owner_name: "",
+  owner_email: "",
+  owner_whatsapp: "",
+  owner_cpf_cnpj: "",
+  owner_password: "",
+  arena_name: "",
+  arena_slug: "",
+  plan_key: "essential" as PlanKey,
+  trial_days: "7",
+};
+
+type EditForm = {
+  arena_id: string;
+  subscription_id: string | null;
+  arena_name: string;
+  arena_slug: string;
+  owner_name: string;
+  owner_email: string;
+  owner_whatsapp: string;
+  owner_cpf_cnpj: string;
+  plan_key: PlanKey;
   status: string;
 };
 
-const DEFAULT_PLAN = "ArenaFlow Start";
-const DEFAULT_AMOUNT = 89.9;
-const DEFAULT_PIX_KEY = "5522999270052";
-const DEFAULT_PAYMENT_WHATSAPP = "5522999270052";
-
-export default function AdminPage() {
+export default function AdminMasterPage() {
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState("");
+  const [actionLoading, setActionLoading] = useState("");
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<AdminView>("overview");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [detailsRow, setDetailsRow] = useState<AdminRow | null>(null);
+  const [editRow, setEditRow] = useState<AdminRow | null>(null);
+  const [createForm, setCreateForm] = useState(initialCreateForm);
+  const [createdClient, setCreatedClient] = useState<any>(null);
 
   const [arenas, setArenas] = useState<Arena[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [invoices, setInvoices] = useState<SubscriptionInvoice[]>([]);
-
-  const [newClientOpen, setNewClientOpen] = useState(false);
-  const [creatingClient, setCreatingClient] = useState(false);
-  const [createdClientResult, setCreatedClientResult] = useState<any>(null);
-
-  const [newOwnerName, setNewOwnerName] = useState("");
-  const [newOwnerWhatsapp, setNewOwnerWhatsapp] = useState("");
-  const [newOwnerEmail, setNewOwnerEmail] = useState("");
-  const [newOwnerPassword, setNewOwnerPassword] = useState("");
-  const [newArenaName, setNewArenaName] = useState("");
-  const [newArenaSlug, setNewArenaSlug] = useState("");
-  const [newPlanName, setNewPlanName] = useState(DEFAULT_PLAN);
-  const [newMonthlyAmount, setNewMonthlyAmount] = useState(String(DEFAULT_AMOUNT));
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
 
   useEffect(() => {
-    loadAdminData();
+    loadAdmin();
   }, []);
 
   const rows = useMemo<AdminRow[]>(() => {
-    return arenas
-      .map((arena) => {
-        const subscription = subscriptions.find((item) => item.arena_id === arena.id) || null;
+    return arenas.map((arena) => {
+      const subscription = subscriptions.find((item) => item.arena_id === arena.id) || null;
+      const planKey = subscription?.plan_key || "essential";
+      const plan =
+        plans.find((item) => item.plan_key === planKey) ||
+        plans.find((item) => item.plan_key === "essential") ||
+        null;
+      const arenaPayments = payments.filter((payment) => payment.arena_id === arena.id || payment.subscription_id === subscription?.id);
+      const trialDaysLeft = subscription?.trial_ends_at ? daysBetween(today, subscription.trial_ends_at.slice(0, 10)) : null;
 
-        const arenaInvoices = invoices
-          .filter((invoice) => invoice.arena_id === arena.id)
-          .sort((a, b) => String(b.due_date).localeCompare(String(a.due_date)));
+      return {
+        arena,
+        subscription,
+        plan,
+        payments: arenaPayments,
+        trialDaysLeft,
+        status: getBusinessStatus(arena, subscription, arenaPayments),
+      };
+    });
+  }, [arenas, subscriptions, plans, payments]);
 
-        const currentInvoice =
-          arenaInvoices.find((invoice) =>
-            ["pending", "overdue", "partial"].includes(String(invoice.status || "pending"))
-          ) ||
-          arenaInvoices[0] ||
-          null;
+  const metrics = useMemo(() => {
+    const active = rows.filter((row) => row.status === "active");
+    const trial = rows.filter((row) => row.status === "trialing");
+    const trialEnding = rows.filter((row) => row.status === "trialing" && row.trialDaysLeft !== null && row.trialDaysLeft <= 1);
+    const trialExpired = rows.filter((row) => row.status === "trial_expired");
+    const overdue = rows.filter((row) => row.status === "overdue");
+    const blocked = rows.filter((row) => row.status === "blocked");
+    const essential = rows.filter((row) => (row.subscription?.plan_key || "essential") === "essential");
+    const pro = rows.filter((row) => row.subscription?.plan_key === "pro");
 
-        const status = getRealStatus(arena, subscription, currentInvoice);
+    const mrr = active.reduce((sum, row) => sum + Number(row.subscription?.monthly_amount || row.plan?.monthly_price || 0), 0);
 
-        return {
-          arena,
-          subscription,
-          currentInvoice,
-          invoices: arenaInvoices,
-          status,
-        };
-      })
-      .filter((row) => {
-        const q = search.trim().toLowerCase();
-
-        if (!q) return true;
-
-        return (
-          row.arena.name.toLowerCase().includes(q) ||
-          String(row.arena.slug || "").toLowerCase().includes(q) ||
-          String(row.arena.whatsapp || "").toLowerCase().includes(q)
-        );
-      });
-  }, [arenas, subscriptions, invoices, search]);
-
-  const stats = useMemo(() => {
-    const subscribedRows = rows.filter((row) => row.subscription);
-
-    const active = subscribedRows.filter((row) => row.status === "active").length;
-    const pending = subscribedRows.filter((row) => row.status === "pending").length;
-    const overdue = subscribedRows.filter((row) => row.status === "overdue").length;
-    const blocked = subscribedRows.filter((row) => row.status === "blocked").length;
-
-    const mrr = subscribedRows
-      .filter((row) => row.status !== "cancelled" && row.status !== "blocked")
-      .reduce((sum, row) => sum + Number(row.subscription?.monthly_amount || 0), 0);
-
-    const pendingAmount = subscribedRows.reduce((sum, row) => {
-      const invoice = row.currentInvoice;
-
-      if (!invoice) return sum;
-
-      if (!["pending", "overdue", "partial"].includes(String(invoice.status || "pending"))) {
-        return sum;
-      }
-
-      return sum + Math.max(Number(invoice.amount || 0) - Number(invoice.paid_amount || 0), 0);
-    }, 0);
+    const receivedMonth = payments
+      .filter((payment) => String(payment.payment_date || "").slice(0, 7) === today.slice(0, 7))
+      .reduce((sum, payment) => sum + Number(payment.value || 0), 0);
 
     return {
       total: rows.length,
-      subscribers: subscribedRows.length,
-      active,
-      pending,
-      overdue,
-      blocked,
+      active: active.length,
+      trial: trial.length,
+      trialEnding: trialEnding.length,
+      trialExpired: trialExpired.length,
+      overdue: overdue.length,
+      blocked: blocked.length,
+      essential: essential.length,
+      pro: pro.length,
       mrr,
-      pendingAmount,
+      receivedMonth,
     };
-  }, [rows]);
+  }, [rows, payments]);
 
-  async function loadAdminData() {
+  const filteredRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const numeric = onlyDigits(search);
+
+    return rows.filter((row) => {
+      const matchesView =
+        view === "overview" ||
+        row.status === view ||
+        (view === "trial" && row.status === "trialing") ||
+        (view === "essential" && (row.subscription?.plan_key || "essential") === "essential") ||
+        (view === "pro" && row.subscription?.plan_key === "pro");
+
+      if (!matchesView) return false;
+
+      if (!term && !numeric) return true;
+
+      return (
+        row.arena.name.toLowerCase().includes(term) ||
+        String(row.arena.slug || "").toLowerCase().includes(term) ||
+        String(row.subscription?.customer_name || "").toLowerCase().includes(term) ||
+        String(row.subscription?.customer_email || "").toLowerCase().includes(term) ||
+        String(row.arena.whatsapp || "").includes(numeric) ||
+        String(row.subscription?.customer_phone || "").includes(numeric) ||
+        String(row.subscription?.customer_cpf_cnpj || "").includes(numeric) ||
+        String(row.subscription?.asaas_subscription_id || "").toLowerCase().includes(term)
+      );
+    });
+  }, [rows, search, view]);
+
+  async function loadAdmin() {
     setLoading(true);
 
-    const [arenasRes, subscriptionsRes, invoicesRes] = await Promise.all([
+    const [arenasRes, subscriptionsRes, plansRes, paymentsRes] = await Promise.all([
       supabase
         .from("arenas")
-        .select("id, name, slug, whatsapp, subscription_status, blocked_reason, created_at")
+        .select("id, name, slug, whatsapp, phone, subscription_status, blocked_reason, created_at")
         .order("created_at", { ascending: false }),
-
-      supabase.from("subscriptions").select("*").order("created_at", { ascending: false }),
-
       supabase
-        .from("subscription_invoices")
+        .from("subscriptions")
         .select("*")
-        .order("due_date", { ascending: false }),
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("plans")
+        .select("*")
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("asaas_payments")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(400),
     ]);
 
-    if (arenasRes.error) alert(arenasRes.error.message);
-    if (subscriptionsRes.error) alert(subscriptionsRes.error.message);
-    if (invoicesRes.error) alert(invoicesRes.error.message);
+    setLoading(false);
+
+    if (arenasRes.error) return alert(arenasRes.error.message);
+    if (subscriptionsRes.error) return alert(subscriptionsRes.error.message);
+    if (plansRes.error) return alert(plansRes.error.message);
+    if (paymentsRes.error) return alert(paymentsRes.error.message);
 
     setArenas((arenasRes.data || []) as Arena[]);
     setSubscriptions((subscriptionsRes.data || []) as Subscription[]);
-    setInvoices((invoicesRes.data || []) as SubscriptionInvoice[]);
-
-    setLoading(false);
+    setPlans((plansRes.data || []) as Plan[]);
+    setPayments((paymentsRes.data || []) as Payment[]);
   }
 
-  async function createSubscriptionForArena(arena: Arena) {
-    const today = new Date();
-    const defaultDueDate = getNextMonthDueDate(today.getDate());
-
-    const nextDueDate = prompt(
-      `Qual será o próximo vencimento da assinatura da arena ${arena.name}?
-
-Use o formato: AAAA-MM-DD`,
-      defaultDueDate
-    );
-
-    if (!nextDueDate) return;
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) {
-      return alert("Data inválida. Use o formato AAAA-MM-DD. Exemplo: 2026-06-23");
-    }
-
-    const monthlyAmountInput = prompt(
-      `Qual será o valor mensal da arena ${arena.name}?`,
-      String(DEFAULT_AMOUNT)
-    );
-
-    if (!monthlyAmountInput) return;
-
-    const monthlyAmount = Number(
-      monthlyAmountInput.replace(",", ".").replace(/[^\d.]/g, "")
-    );
-
-    if (!monthlyAmount || monthlyAmount <= 0) {
-      return alert("Valor mensal inválido.");
-    }
-
-    const ok = confirm(
-      `Confirmar criação da assinatura?
-
-Arena: ${arena.name}
-Valor: R$ ${formatMoney(
-        monthlyAmount
-      )}
-Próximo vencimento: ${formatDate(nextDueDate)}
-
-A implementação já foi paga e a primeira mensalidade ficará para essa data.
-
-Use isso apenas quando essa arena for um cliente/assinante separado. Se for segunda arena do mesmo dono, NÃO crie outra assinatura.`
-    );
-
-    if (!ok) return;
-
-    setSavingId(arena.id);
-
-    const dueDay = Number(nextDueDate.slice(8, 10));
-    const referenceMonth = nextDueDate.slice(0, 7);
-
-    const { data: subscription, error } = await supabase
-      .from("subscriptions")
-      .insert({
-        arena_id: arena.id,
-        plan_name: DEFAULT_PLAN,
-        monthly_amount: monthlyAmount,
-        due_day: dueDay,
-        status: "active",
-        next_due_date: nextDueDate,
-        last_paid_at: new Date().toISOString(),
-        payment_pix_key: DEFAULT_PIX_KEY,
-        payment_whatsapp: DEFAULT_PAYMENT_WHATSAPP,
-        notes:
-          "Assinatura criada manualmente pelo Admin Master. Implementação paga. Primeira mensalidade definida manualmente.",
-      })
-      .select("*")
-      .single();
-
-    if (error) {
-      setSavingId("");
-      return alert(error.message);
-    }
-
-    const invoiceInsert = await supabase.from("subscription_invoices").insert({
-      arena_id: arena.id,
-      subscription_id: subscription.id,
-      reference_month: referenceMonth,
-      due_date: nextDueDate,
-      amount: monthlyAmount,
-      paid_amount: 0,
-      status: "pending",
-      notes: "Primeira mensalidade após implementação inicial.",
-    });
-
-    if (invoiceInsert.error) {
-      setSavingId("");
-      return alert(invoiceInsert.error.message);
-    }
-
-    await supabase
-      .from("arenas")
-      .update({
-        subscription_status: "active",
-        blocked_reason: null,
-      })
-      .eq("id", arena.id);
-
-    setSavingId("");
-    await loadAdminData();
-  }
-
-  async function markInvoicePaid(row: AdminRow) {
-    if (!row.subscription || !row.currentInvoice) {
-      return alert("Essa arena ainda não tem mensalidade criada.");
-    }
-
-    const ok = confirm(
-      `Marcar como pago?\n\nArena: ${row.arena.name}\nValor: R$ ${formatMoney(row.currentInvoice.amount)}`
-    );
-
-    if (!ok) return;
-
-    setSavingId(row.arena.id);
-
-    const nextDueDate = getNextMonthDueDate(
-      Number(row.subscription.due_day || new Date(row.currentInvoice.due_date).getDate()),
-      row.currentInvoice.due_date
-    );
-
-    const nextReferenceMonth = nextDueDate.slice(0, 7);
-
-    const paidRes = await supabase
-      .from("subscription_invoices")
-      .update({
-        status: "paid",
-        paid_amount: row.currentInvoice.amount,
-        paid_at: new Date().toISOString(),
-      })
-      .eq("id", row.currentInvoice.id);
-
-    if (paidRes.error) {
-      setSavingId("");
-      return alert(paidRes.error.message);
-    }
-
-    const subRes = await supabase
-      .from("subscriptions")
-      .update({
-        status: "active",
-        last_paid_at: new Date().toISOString(),
-        next_due_date: nextDueDate,
-        blocked_at: null,
-      })
-      .eq("id", row.subscription.id);
-
-    if (subRes.error) {
-      setSavingId("");
-      return alert(subRes.error.message);
-    }
-
-    await supabase
-      .from("arenas")
-      .update({
-        subscription_status: "active",
-        blocked_reason: null,
-      })
-      .eq("id", row.arena.id);
-
-    const { data: existingNext } = await supabase
-      .from("subscription_invoices")
-      .select("id")
-      .eq("arena_id", row.arena.id)
-      .eq("reference_month", nextReferenceMonth)
-      .maybeSingle();
-
-    if (!existingNext) {
-      const nextInvoiceRes = await supabase.from("subscription_invoices").insert({
-        arena_id: row.arena.id,
-        subscription_id: row.subscription.id,
-        reference_month: nextReferenceMonth,
-        due_date: nextDueDate,
-        amount: Number(row.subscription.monthly_amount || DEFAULT_AMOUNT),
-        paid_amount: 0,
-        status: "pending",
-        notes: "Mensalidade gerada após confirmação de pagamento.",
-      });
-
-      if (nextInvoiceRes.error) {
-        setSavingId("");
-        return alert(nextInvoiceRes.error.message);
-      }
-    }
-
-    setSavingId("");
-    await loadAdminData();
-  }
-
-  async function markInvoiceOverdue(row: AdminRow) {
-    if (!row.subscription || !row.currentInvoice) {
-      return alert("Essa arena ainda não tem mensalidade criada.");
-    }
-
-    const ok = confirm(`Marcar mensalidade da ${row.arena.name} como atrasada?`);
-    if (!ok) return;
-
-    setSavingId(row.arena.id);
-
-    const invoiceRes = await supabase
-      .from("subscription_invoices")
-      .update({ status: "overdue" })
-      .eq("id", row.currentInvoice.id);
-
-    if (invoiceRes.error) {
-      setSavingId("");
-      return alert(invoiceRes.error.message);
-    }
-
-    const subRes = await supabase
-      .from("subscriptions")
-      .update({ status: "overdue" })
-      .eq("id", row.subscription.id);
-
-    if (subRes.error) {
-      setSavingId("");
-      return alert(subRes.error.message);
-    }
-
-    setSavingId("");
-    await loadAdminData();
-  }
-
-  async function blockArena(row: AdminRow) {
-    const reason =
-      prompt(
-        `Motivo do bloqueio da arena ${row.arena.name}:`,
-        "Mensalidade em atraso. Regularize para voltar a usar o ArenaFlow."
-      ) || "Mensalidade em atraso.";
-
-    setSavingId(row.arena.id);
-
-    const arenaRes = await supabase
-      .from("arenas")
-      .update({
-        subscription_status: "blocked",
-        blocked_reason: reason,
-      })
-      .eq("id", row.arena.id);
-
-    if (arenaRes.error) {
-      setSavingId("");
-      return alert(arenaRes.error.message);
-    }
-
-    if (row.subscription) {
-      const subRes = await supabase
-        .from("subscriptions")
-        .update({
-          status: "blocked",
-          blocked_at: new Date().toISOString(),
-          notes: reason,
-        })
-        .eq("id", row.subscription.id);
-
-      if (subRes.error) {
-        setSavingId("");
-        return alert(subRes.error.message);
-      }
-    }
-
-    setSavingId("");
-    await loadAdminData();
-  }
-
-  async function unblockArena(row: AdminRow) {
-    const ok = confirm(`Desbloquear a arena ${row.arena.name}?`);
-    if (!ok) return;
-
-    setSavingId(row.arena.id);
-
-    const arenaRes = await supabase
-      .from("arenas")
-      .update({
-        subscription_status: "active",
-        blocked_reason: null,
-      })
-      .eq("id", row.arena.id);
-
-    if (arenaRes.error) {
-      setSavingId("");
-      return alert(arenaRes.error.message);
-    }
-
-    if (row.subscription) {
-      const subRes = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          blocked_at: null,
-        })
-        .eq("id", row.subscription.id);
-
-      if (subRes.error) {
-        setSavingId("");
-        return alert(subRes.error.message);
-      }
-    }
-
-    setSavingId("");
-    await loadAdminData();
-  }
-
-  async function copyPix() {
-    await navigator.clipboard.writeText(DEFAULT_PIX_KEY);
-    alert("Chave Pix copiada!");
-  }
-
-  function openChargeWhatsapp(row: AdminRow) {
-    if (!row.subscription) {
-      return alert("Essa arena ainda não tem assinatura. Crie assinatura apenas se for um cliente pagante separado.");
-    }
-
-    const phone = normalizePhone(row.subscription.payment_whatsapp || DEFAULT_PAYMENT_WHATSAPP);
-    const amount = row.currentInvoice?.amount || row.subscription.monthly_amount || DEFAULT_AMOUNT;
-    const dueDate = row.currentInvoice?.due_date || row.subscription.next_due_date || "";
-    const plan = row.subscription.plan_name || DEFAULT_PLAN;
-
-    const message = `Olá! Passando para lembrar sobre a mensalidade do ArenaFlow.
-
-Arena: ${row.arena.name}
-Plano: ${plan}
-Valor: R$ ${formatMoney(amount)}
-Vencimento: ${dueDate ? formatDate(dueDate) : "A confirmar"}
-
-Chave Pix: ${DEFAULT_PIX_KEY}
-
-Após o pagamento, envie o comprovante por aqui para confirmação.`;
-
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
-  }
-
-
-  function generatePassword() {
-    const password = Math.random().toString(36).slice(-8) + "A1";
-    setNewOwnerPassword(password);
-  }
-
-  function handleArenaNameChange(value: string) {
-    setNewArenaName(value);
-
-    if (!newArenaSlug.trim()) {
-      setNewArenaSlug(slugifyLocal(value));
-    }
-  }
-
-  function resetNewClientForm() {
-    setNewOwnerName("");
-    setNewOwnerWhatsapp("");
-    setNewOwnerEmail("");
-    setNewOwnerPassword("");
-    setNewArenaName("");
-    setNewArenaSlug("");
-    setNewPlanName(DEFAULT_PLAN);
-    setNewMonthlyAmount(String(DEFAULT_AMOUNT));
-    setCreatedClientResult(null);
-  }
-
-  async function createNewClient(event: React.FormEvent) {
+  async function createClient(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!newOwnerName.trim()) return alert("Informe o nome do dono.");
-    if (!newOwnerEmail.trim()) return alert("Informe o e-mail do dono.");
-    if (!newOwnerPassword.trim()) return alert("Informe uma senha inicial.");
-    if (!newArenaName.trim()) return alert("Informe o nome da arena.");
-    if (!newArenaSlug.trim()) return alert("Informe o slug da arena.");
+    if (!createForm.owner_name.trim()) return alert("Informe o nome do responsável.");
+    if (!createForm.owner_email.trim()) return alert("Informe o e-mail do responsável.");
+    if (!isValidCpfCnpj(createForm.owner_cpf_cnpj)) return alert("Informe CPF ou CNPJ válido.");
+    if (!createForm.owner_password.trim() || createForm.owner_password.length < 6) return alert("A senha precisa ter pelo menos 6 caracteres.");
+    if (!createForm.arena_name.trim()) return alert("Informe o nome da arena.");
 
-    setCreatingClient(true);
-    setCreatedClientResult(null);
+    setActionLoading("create");
+    setCreatedClient(null);
 
-    const response = await fetch("/api/admin/create-client", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ownerName: newOwnerName,
-        ownerWhatsapp: newOwnerWhatsapp,
-        ownerEmail: newOwnerEmail,
-        ownerPassword: newOwnerPassword,
-        arenaName: newArenaName,
-        arenaSlug: newArenaSlug,
-        planName: newPlanName,
-        monthlyAmount: Number(newMonthlyAmount || DEFAULT_AMOUNT),
-      }),
-    });
+    try {
+      const token = await getSessionToken();
 
-    const result = await response.json();
-    setCreatingClient(false);
+      const response = await fetch("/api/admin/create-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          ...createForm,
+          owner_whatsapp: onlyDigits(createForm.owner_whatsapp),
+          owner_cpf_cnpj: onlyDigits(createForm.owner_cpf_cnpj),
+          arena_slug: slugify(createForm.arena_slug),
+          trial_days: Number(createForm.trial_days || 7),
+        }),
+      });
 
-    if (!response.ok) {
-      alert(result.error || "Erro ao criar cliente.");
-      return;
+      const data = await response.json().catch(() => null);
+
+      setActionLoading("");
+
+      if (!response.ok) return alert(data?.error || "Erro ao criar cliente.");
+
+      setCreatedClient(data);
+      setCreateForm(initialCreateForm);
+      await loadAdmin();
+    } catch {
+      setActionLoading("");
+      alert("Erro ao criar cliente agora.");
     }
-
-    setCreatedClientResult(result);
-    await loadAdminData();
   }
 
-  async function copyCreatedAccess() {
-    if (!createdClientResult) return;
-
-    const text = `Seu ArenaFlow está pronto.
-
-Painel:
-${window.location.origin}/login
-
-E-mail:
-${createdClientResult.login.email}
-
-Senha inicial:
-${createdClientResult.login.password}
-
-Link público da arena:
-${window.location.origin}${createdClientResult.public_url}
-
-Sua mensalidade começa somente no próximo mês.`;
-
-    await navigator.clipboard.writeText(text);
-    alert("Mensagem copiada!");
+  function openEdit(row: AdminRow) {
+    setEditRow(row);
   }
 
-  function openCreatedAccessWhatsapp() {
-    if (!createdClientResult) return;
+  async function saveEdit(form: EditForm) {
+    if (!form.arena_name.trim()) return alert("Informe o nome da arena.");
+    if (!form.owner_name.trim()) return alert("Informe o nome do responsável.");
+    if (!form.owner_email.trim()) return alert("Informe o e-mail.");
+    if (!isValidCpfCnpj(form.owner_cpf_cnpj)) return alert("Informe CPF ou CNPJ válido.");
 
-    const phone = normalizePhone(newOwnerWhatsapp);
+    setActionLoading(`edit:${form.arena_id}`);
 
-    const text = `Seu ArenaFlow está pronto.
+    try {
+      const token = await getSessionToken();
 
-Painel:
-${window.location.origin}/login
+      const response = await fetch("/api/admin/update-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          ...form,
+          owner_whatsapp: onlyDigits(form.owner_whatsapp),
+          owner_cpf_cnpj: onlyDigits(form.owner_cpf_cnpj),
+          arena_slug: slugify(form.arena_slug),
+        }),
+      });
 
-E-mail:
-${createdClientResult.login.email}
+      const data = await response.json().catch(() => null);
 
-Senha inicial:
-${createdClientResult.login.password}
+      setActionLoading("");
 
-Link público da arena:
-${window.location.origin}${createdClientResult.public_url}
+      if (!response.ok) return alert(data?.error || "Erro ao atualizar cliente.");
 
-Sua mensalidade começa somente no próximo mês.`;
+      setEditRow(null);
+      await loadAdmin();
+    } catch {
+      setActionLoading("");
+      alert("Erro ao salvar edição.");
+    }
+  }
 
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
+  async function deleteClient(row: AdminRow) {
+    const confirmed = window.confirm(
+      `Excluir ${row.arena.name}? Essa ação remove arena, vínculo, assinatura e usuário de acesso.`
+    );
+
+    if (!confirmed) return;
+
+    setActionLoading(`delete:${row.arena.id}`);
+
+    try {
+      const token = await getSessionToken();
+
+      const response = await fetch("/api/admin/delete-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          arena_id: row.arena.id,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      setActionLoading("");
+
+      if (!response.ok) return alert(data?.error || "Erro ao excluir cliente.");
+
+      if (detailsRow?.arena.id === row.arena.id) setDetailsRow(null);
+      await loadAdmin();
+    } catch {
+      setActionLoading("");
+      alert("Erro ao excluir cliente.");
+    }
+  }
+
+  async function quickStatus(row: AdminRow, status: "trialing" | "active" | "blocked") {
+    const form: EditForm = {
+      arena_id: row.arena.id,
+      subscription_id: row.subscription?.id || null,
+      arena_name: row.arena.name,
+      arena_slug: row.arena.slug || "",
+      owner_name: row.subscription?.customer_name || row.arena.name,
+      owner_email: row.subscription?.customer_email || "",
+      owner_whatsapp: row.subscription?.customer_phone || row.arena.whatsapp || "",
+      owner_cpf_cnpj: row.subscription?.customer_cpf_cnpj || "",
+      plan_key: ((row.subscription?.plan_key || "essential") as PlanKey),
+      status,
+    };
+
+    await saveEdit(form);
   }
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#050B12] text-white">
-        <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-[#0F172A] px-6 py-4">
-          <Loader2 className="animate-spin text-emerald-400" />
-          Carregando Admin Master...
+      <main className="min-h-screen bg-[#F5F7FB] text-slate-950">
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+            <Loader2 className="animate-spin text-emerald-400" />
+            Carregando operação...
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#050B12] p-6 text-white">
-      <div className="mx-auto max-w-[1600px] space-y-6">
-        <section className="overflow-hidden rounded-[2rem] border border-emerald-500/20 bg-[#0F172A] shadow-2xl shadow-black/30">
-          <div className="relative p-8">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.18),transparent_35%)]" />
-
-            <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-center">
-              <div>
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-emerald-300">
-                  <ShieldCheck size={16} />
-                  Admin Master
-                </div>
-
-                <h1 className="text-4xl font-black tracking-tight md:text-5xl">
-                  Controle do ArenaFlow
-                </h1>
-
-                <p className="mt-3 max-w-3xl text-slate-400">
-                  Gerencie assinantes, mensalidades, cobranças pelo WhatsApp, pagamentos manuais e bloqueio das arenas.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetNewClientForm();
-                    setNewClientOpen(true);
-                  }}
-                  className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black transition hover:bg-emerald-400"
-                >
-                  <UserPlus size={18} />
-                  Novo cliente
-                </button>
-
-                <button
-                  type="button"
-                  onClick={copyPix}
-                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 font-black text-white transition hover:border-emerald-400"
-                >
-                  <Copy size={18} />
-                  Copiar Pix
-                </button>
-
-                <button
-                  type="button"
-                  onClick={loadAdminData}
-                  className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black transition hover:bg-emerald-400"
-                >
-                  <RefreshCw size={18} />
-                  Atualizar
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
-          <StatCard icon={<Building2 />} label="Arenas" value={stats.total} />
-          <StatCard icon={<CreditCard />} label="Assinaturas" value={stats.subscribers} />
-          <StatCard icon={<CheckCircle2 />} label="Ativas" value={stats.active} />
-          <StatCard icon={<CalendarDays />} label="Pendentes" value={stats.pending} />
-          <StatCard icon={<AlertTriangle />} label="Atrasadas" value={stats.overdue} />
-          <StatCard icon={<Lock />} label="Bloqueadas" value={stats.blocked} />
-          <StatCard icon={<Wallet />} label="MRR previsto" value={`R$ ${formatMoney(stats.mrr)}`} />
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-6">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-400">
-              Valor pendente
-            </p>
-            <p className="mt-2 text-4xl font-black">R$ {formatMoney(stats.pendingAmount)}</p>
-            <p className="mt-2 text-sm text-slate-400">
-              Soma apenas de assinaturas criadas, não de todas as arenas cadastradas.
-            </p>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-6">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-400">
-              Pix / WhatsApp de cobrança
-            </p>
-            <p className="mt-2 text-2xl font-black">{DEFAULT_PIX_KEY}</p>
-            <p className="mt-2 text-sm text-slate-400">
-              Esse número será usado nos avisos e comprovantes.
-            </p>
-          </div>
-        </section>
-
-        <section className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-6 shadow-xl shadow-black/20">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+    <main className="min-h-screen bg-[#F5F7FB] text-slate-950">
+      <div className="mx-auto max-w-[1600px] space-y-4 p-4 md:p-6">
+        <header className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-slate-950" />
+          <div className="px-5 py-4 md:px-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <h2 className="text-2xl font-black">Assinantes</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Uma assinatura = um cliente pagante. Arenas extras do mesmo dono não entram no MRR automaticamente.
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-base font-black text-emerald-300 shadow-sm">
+                  AF
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                    <ShieldCheck size={13} />
+                    Backoffice SaaS
+                  </div>
+                  <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
+                    Clientes ArenaFlow
+                  </h1>
+                </div>
+              </div>
+              <p className="max-w-3xl text-sm leading-relaxed text-slate-500">
+                Controle clientes, planos, trial, assinatura Asaas, bloqueios e suporte em uma tela operacional.
               </p>
             </div>
 
-            <div className="relative w-full md:w-96">
-              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/admin/automations"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3.5 font-black text-slate-700 transition hover:border-emerald-300 hover:text-slate-950"
+              >
+                <Bot size={18} />
+                Automações
+              </Link>
+              <button
+                type="button"
+                onClick={loadAdmin}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3.5 font-black text-slate-700 transition hover:border-emerald-300 hover:text-slate-950"
+              >
+                <RefreshCw size={18} />
+                Atualizar
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3.5 font-black text-white transition hover:bg-slate-800"
+              >
+                <Plus size={18} />
+                Novo cliente
+              </button>
+            </div>
+          </div>
+          </div>
+        </header>
+
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <MetricCard label="MRR" value={`R$ ${formatMoney(metrics.mrr)}`} sub="recorrência ativa" tone="emerald" icon={<TrendingUp />} />
+          <MetricCard label="Clientes" value={metrics.total} sub={`${metrics.active} ativos`} tone="slate" icon={<Building2 />} />
+          <MetricCard label="Trial" value={metrics.trial} sub={`${metrics.trialEnding} vencendo`} tone="yellow" icon={<Clock3 />} />
+          <MetricCard label="Expirados" value={metrics.trialExpired} sub="precisam ativar" tone="red" icon={<AlertTriangle />} />
+          <MetricCard label="Planos" value={`${metrics.essential}/${metrics.pro}`} sub="Essencial / Pro" tone="violet" icon={<Crown />} />
+          <MetricCard label="Recebido" value={`R$ ${formatMoney(metrics.receivedMonth)}`} sub="mês atual" tone="blue" icon={<WalletCards />} />
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-4 xl:grid-cols-[1fr_420px] xl:items-center">
+            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <ViewPill active={view === "overview"} onClick={() => setView("overview")}>Todos</ViewPill>
+              <ViewPill active={view === "trial"} onClick={() => setView("trial")}>Trial</ViewPill>
+              <ViewPill active={view === "trial_expired"} onClick={() => setView("trial_expired")}>Expirados</ViewPill>
+              <ViewPill active={view === "active"} onClick={() => setView("active")}>Ativos</ViewPill>
+              <ViewPill active={view === "overdue"} onClick={() => setView("overdue")}>Atrasados</ViewPill>
+              <ViewPill active={view === "blocked"} onClick={() => setView("blocked")}>Bloqueados</ViewPill>
+              <ViewPill active={view === "essential"} onClick={() => setView("essential")}>Essencial</ViewPill>
+              <ViewPill active={view === "pro"} onClick={() => setView("pro")}>Pro</ViewPill>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <Search size={18} className="text-slate-500" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar arena, slug ou WhatsApp..."
-                className="w-full rounded-2xl border border-white/10 bg-[#07111B] py-4 pl-11 pr-4 text-white outline-none focus:border-emerald-400"
+                placeholder="Buscar cliente, arena, CPF, telefone ou Asaas..."
+                className="w-full bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-500"
               />
             </div>
           </div>
+        </section>
 
-          <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
-            <div className="hidden grid-cols-[1.2fr_1fr_1fr_1fr_1.4fr] bg-white/[0.03] px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-500 xl:grid">
-              <div>Arena</div>
-              <div>Plano</div>
-              <div>Mensalidade</div>
-              <div>Status</div>
-              <div>Ações</div>
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div>
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="text-xl font-black">Clientes</h2>
+              <p className="mt-1 text-sm text-slate-600">{filteredRows.length} cliente(s) nesta visão.</p>
             </div>
 
-            {rows.length === 0 ? (
-              <div className="p-10 text-center text-slate-500">Nenhuma arena encontrada.</div>
-            ) : (
-              <div className="divide-y divide-white/10">
-                {rows.map((row) => (
-                  <ArenaRow
+            <div className="divide-y divide-white/10">
+              {filteredRows.length === 0 ? (
+                <div className="p-10 text-center text-slate-500">Nenhum cliente encontrado.</div>
+              ) : (
+                filteredRows.map((row) => (
+                  <ClientListItem
                     key={row.arena.id}
                     row={row}
-                    saving={savingId === row.arena.id}
-                    onCreate={() => createSubscriptionForArena(row.arena)}
-                    onCharge={() => openChargeWhatsapp(row)}
-                    onPaid={() => markInvoicePaid(row)}
-                    onOverdue={() => markInvoiceOverdue(row)}
-                    onBlock={() => blockArena(row)}
-                    onUnblock={() => unblockArena(row)}
+                    loading={actionLoading}
+                    onDetails={() => setDetailsRow(row)}
+                    onEdit={() => openEdit(row)}
+                    onDelete={() => deleteClient(row)}
                   />
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
+
         </section>
       </div>
 
-      {newClientOpen && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#0F172A] shadow-2xl shadow-black">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#0F172A] p-6">
-              <div>
-                <p className="text-sm font-black uppercase tracking-[0.22em] text-emerald-400">
-                  Admin Master
-                </p>
-                <h2 className="mt-1 text-3xl font-black text-white">
-                  Novo cliente ArenaFlow
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setNewClientOpen(false)}
-                className="rounded-2xl border border-white/10 p-3 text-slate-300 transition hover:border-red-400 hover:text-red-300"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {!createdClientResult ? (
-              <form onSubmit={createNewClient} className="space-y-6 p-6">
-                <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-                  <h3 className="text-xl font-black text-white">Como funciona</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-emerald-100/80">
-                    Esse formulário cria o usuário do dono, cria a arena, vincula o acesso,
-                    cria a assinatura e gera a primeira mensalidade para o próximo mês.
-                  </p>
-                </div>
-
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div className="md:col-span-2">
-                    <h3 className="mb-3 flex items-center gap-2 text-xl font-black text-white">
-                      <UserPlus className="text-emerald-400" />
-                      Dados do dono
-                    </h3>
-                  </div>
-
-                  <AdminInput
-                    label="Nome do dono"
-                    value={newOwnerName}
-                    onChange={setNewOwnerName}
-                    placeholder="Ex: João Silva"
-                  />
-
-                  <AdminInput
-                    label="WhatsApp do dono"
-                    value={newOwnerWhatsapp}
-                    onChange={(value) => setNewOwnerWhatsapp(value.replace(/\D/g, ""))}
-                    placeholder="22999999999"
-                  />
-
-                  <AdminInput
-                    label="E-mail de acesso"
-                    value={newOwnerEmail}
-                    onChange={setNewOwnerEmail}
-                    placeholder="cliente@email.com"
-                    type="email"
-                  />
-
-                  <div>
-                    <label className="mb-2 block text-sm font-black text-slate-300">
-                      Senha inicial
-                    </label>
-
-                    <div className="flex overflow-hidden rounded-2xl border border-white/10 bg-[#07111B] focus-within:border-emerald-400">
-                      <input
-                        value={newOwnerPassword}
-                        onChange={(event) => setNewOwnerPassword(event.target.value)}
-                        placeholder="Mínimo 6 caracteres"
-                        className="w-full bg-transparent p-4 text-white outline-none"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={generatePassword}
-                        className="flex items-center gap-2 border-l border-white/10 px-4 font-black text-emerald-300 hover:bg-white/5"
-                      >
-                        <KeyRound size={16} />
-                        Gerar
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <h3 className="mb-3 mt-4 flex items-center gap-2 text-xl font-black text-white">
-                      <Building2 className="text-emerald-400" />
-                      Dados da arena
-                    </h3>
-                  </div>
-
-                  <AdminInput
-                    label="Nome da arena"
-                    value={newArenaName}
-                    onChange={handleArenaNameChange}
-                    placeholder="Ex: Arena São Pedro"
-                  />
-
-                  <AdminInput
-                    label="Slug do link público"
-                    value={newArenaSlug}
-                    onChange={(value) => setNewArenaSlug(slugifyLocal(value))}
-                    placeholder="arena-sao-pedro"
-                  />
-
-                  <div className="md:col-span-2">
-                    <div className="rounded-2xl border border-white/10 bg-[#07111B] p-4">
-                      <p className="text-sm text-slate-400">Link público previsto</p>
-                      <p className="mt-1 break-all font-black text-emerald-300">
-                        {typeof window !== "undefined"
-                          ? `${window.location.origin}/arena/${newArenaSlug || "slug-da-arena"}`
-                          : `/arena/${newArenaSlug || "slug-da-arena"}`}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <h3 className="mb-3 mt-4 flex items-center gap-2 text-xl font-black text-white">
-                      <CreditCard className="text-emerald-400" />
-                      Assinatura
-                    </h3>
-                  </div>
-
-                  <AdminInput
-                    label="Plano"
-                    value={newPlanName}
-                    onChange={setNewPlanName}
-                    placeholder="ArenaFlow Start"
-                  />
-
-                  <AdminInput
-                    label="Valor mensal"
-                    value={newMonthlyAmount}
-                    onChange={setNewMonthlyAmount}
-                    placeholder="89.90"
-                    type="number"
-                  />
-                </div>
-
-                <div className="rounded-3xl border border-yellow-500/20 bg-yellow-500/10 p-5">
-                  <p className="font-black text-yellow-100">Regra comercial aplicada</p>
-                  <p className="mt-2 text-sm leading-relaxed text-yellow-100/80">
-                    O cliente pagou a implementação agora. A assinatura será criada como ativa
-                    e a primeira mensalidade ficará para o próximo mês.
-                  </p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={creatingClient}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-6 py-5 text-lg font-black text-black transition hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {creatingClient ? (
-                    <>
-                      <Loader2 className="animate-spin" />
-                      Criando cliente...
-                    </>
-                  ) : (
-                    <>
-                      <Plus />
-                      Criar cliente completo
-                    </>
-                  )}
-                </button>
-              </form>
-            ) : (
-              <div className="space-y-6 p-6">
-                <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="rounded-2xl bg-emerald-500 p-3 text-black">
-                      <CheckCircle2 />
-                    </div>
-
-                    <div>
-                      <h3 className="text-2xl font-black text-white">
-                        Cliente criado com sucesso!
-                      </h3>
-                      <p className="mt-2 text-slate-300">
-                        Acesso, arena, vínculo, assinatura e primeira mensalidade foram criados.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <ResultBox
-                    label="Painel"
-                    value={
-                      typeof window !== "undefined"
-                        ? `${window.location.origin}/login`
-                        : "/login"
-                    }
-                  />
-
-                  <ResultBox
-                    label="Link público"
-                    value={
-                      typeof window !== "undefined"
-                        ? `${window.location.origin}${createdClientResult.public_url}`
-                        : createdClientResult.public_url
-                    }
-                  />
-
-                  <ResultBox label="E-mail" value={createdClientResult.login.email} />
-                  <ResultBox label="Senha" value={createdClientResult.login.password} />
-                  <ResultBox label="Próximo vencimento" value={formatDate(createdClientResult.subscription.next_due_date)} />
-                  <ResultBox label="Mensalidade" value={`R$ ${formatMoney(createdClientResult.subscription.monthly_amount)}`} />
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={copyCreatedAccess}
-                    className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-5 py-4 font-black text-white transition hover:border-emerald-400 hover:text-emerald-300"
-                  >
-                    <Copy />
-                    Copiar mensagem de acesso
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={openCreatedAccessWhatsapp}
-                    className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400"
-                  >
-                    <MessageCircle />
-                    Enviar no WhatsApp
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewClientOpen(false);
-                    resetNewClientForm();
-                  }}
-                  className="w-full rounded-2xl border border-white/10 px-5 py-4 font-black text-slate-300 transition hover:border-emerald-400 hover:text-white"
-                >
-                  Fechar
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {createOpen && (
+        <CreateClientModal
+          form={createForm}
+          setForm={setCreateForm}
+          plans={plans}
+          loading={actionLoading === "create"}
+          createdClient={createdClient}
+          onSubmit={createClient}
+          onClose={() => {
+            setCreateOpen(false);
+            setCreatedClient(null);
+          }}
+        />
       )}
 
+      {editRow && (
+        <EditClientModal
+          row={editRow}
+          plans={plans}
+          loading={actionLoading === `edit:${editRow.arena.id}`}
+          onClose={() => setEditRow(null)}
+          onSave={saveEdit}
+        />
+      )}
+
+      {detailsRow && (
+        <DetailsDrawer
+          row={detailsRow}
+          loading={actionLoading}
+          onClose={() => setDetailsRow(null)}
+          onEdit={() => {
+            setEditRow(detailsRow);
+            setDetailsRow(null);
+          }}
+          onDelete={() => deleteClient(detailsRow)}
+          onTrial={() => quickStatus(detailsRow, "trialing")}
+          onActive={() => quickStatus(detailsRow, "active")}
+          onBlocked={() => quickStatus(detailsRow, "blocked")}
+        />
+      )}
     </main>
   );
 }
 
-function ArenaRow({
+function ClientListItem({
   row,
-  saving,
-  onCreate,
-  onCharge,
-  onPaid,
-  onOverdue,
-  onBlock,
-  onUnblock,
+  loading,
+  onDetails,
+  onEdit,
+  onDelete,
 }: {
   row: AdminRow;
-  saving: boolean;
-  onCreate: () => void;
-  onCharge: () => void;
-  onPaid: () => void;
-  onOverdue: () => void;
-  onBlock: () => void;
-  onUnblock: () => void;
+  loading: string;
+  onDetails: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
-  const { arena, subscription, currentInvoice, status } = row;
+  const deleting = loading === `delete:${row.arena.id}`;
+  const wa = normalizePhone(row.subscription?.customer_phone || row.arena.whatsapp || "");
 
   return (
-    <div className="grid gap-5 px-5 py-5 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1.4fr] xl:items-center">
-      <div>
-        <p className="text-lg font-black text-white">{arena.name}</p>
+    <div className="grid gap-4 border-l-4 border-transparent px-5 py-4 transition hover:border-emerald-500 hover:bg-slate-50 xl:grid-cols-[1.5fr_140px_140px_150px_170px] xl:items-center">
+      <button type="button" onClick={onDetails} className="min-w-0 text-left">
+        <div className="flex items-start gap-3">
+          <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-sm font-black text-emerald-300 md:flex">
+            {initials(row.arena.name)}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate text-base font-black text-slate-950">{row.arena.name}</p>
+              {!row.subscription?.asaas_subscription_id && (
+                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-[10px] font-black uppercase text-orange-700 ring-1 ring-orange-200">
+                  Sem Asaas
+                </span>
+              )}
+            </div>
+            <p className="mt-1 truncate text-sm text-slate-600">
+              {row.subscription?.customer_name || "Responsável não informado"} • {row.subscription?.customer_email || "sem e-mail"}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2 xl:hidden">
+              <PlanBadge planKey={row.subscription?.plan_key || "essential"} />
+              <StatusBadge status={row.status} />
+            </div>
+          </div>
+        </div>
+      </button>
 
-        <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-          {arena.slug && <span>/arena/{arena.slug}</span>}
-          {arena.whatsapp && <span>• {arena.whatsapp}</span>}
+      <div className="hidden xl:block">
+        <PlanBadge planKey={row.subscription?.plan_key || "essential"} />
+        <p className="mt-2 text-xs font-bold text-slate-500">R$ {formatMoney(row.subscription?.monthly_amount || row.plan?.monthly_price || 0)}/mês</p>
+      </div>
+
+      <div className="hidden xl:block">
+        <StatusBadge status={row.status} />
+        <p className="mt-2 text-xs font-bold text-slate-500">
+          {row.trialDaysLeft === null ? "sem trial" : row.trialDaysLeft < 0 ? "trial expirado" : `${row.trialDaysLeft}d trial`}
+        </p>
+      </div>
+
+      <div className="hidden text-sm font-black text-slate-800 xl:block">
+        {row.subscription?.asaas_next_due_date ? formatDate(row.subscription.asaas_next_due_date) : "-"}
+        <p className="mt-2 text-xs font-bold text-slate-600">Vencimento</p>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        {wa && (
+          <a
+            href={`https://wa.me/${wa}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+            title="WhatsApp"
+          >
+            <MessageCircle size={17} />
+          </a>
+        )}
+        <button onClick={onDetails} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:border-slate-300 hover:text-slate-950" title="Detalhes">
+          <Eye size={17} />
+        </button>
+        <button onClick={onEdit} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:border-slate-300 hover:text-slate-950" title="Editar">
+          <Edit3 size={17} />
+        </button>
+        <button disabled={deleting} onClick={onDelete} className="rounded-lg border border-red-200 bg-white p-2 text-red-500 transition hover:bg-red-50 disabled:opacity-60" title="Excluir">
+          {deleting ? <Loader2 className="animate-spin" size={17} /> : <Trash2 size={17} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CreateClientModal({
+  form,
+  setForm,
+  plans,
+  loading,
+  createdClient,
+  onSubmit,
+  onClose,
+}: {
+  form: typeof initialCreateForm;
+  setForm: (form: typeof initialCreateForm) => void;
+  plans: Plan[];
+  loading: boolean;
+  createdClient: any;
+  onSubmit: (event: React.FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title="Novo cliente" subtitle="Crie o acesso em trial sem gerar cobrança Asaas agora." onClose={onClose}>
+      {createdClient && (
+        <div className="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4">
+          <h3 className="font-black text-emerald-100">Cliente criado</h3>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <CopyLine label="Login" value={createdClient.login_url || "/login"} />
+            <CopyLine label="E-mail" value={createdClient.owner_email || ""} />
+            <CopyLine label="Senha" value={createdClient.owner_password || ""} />
+            <CopyLine label="Trial até" value={createdClient.trial_ends_at ? formatDate(createdClient.trial_ends_at) : ""} />
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <TextInput label="Responsável" value={form.owner_name} onChange={(value) => setForm({ ...form, owner_name: value })} placeholder="Nome do dono" />
+          <TextInput label="E-mail de acesso" value={form.owner_email} onChange={(value) => setForm({ ...form, owner_email: value })} placeholder="cliente@email.com" />
+          <TextInput label="WhatsApp" value={form.owner_whatsapp} onChange={(value) => setForm({ ...form, owner_whatsapp: onlyDigits(value) })} placeholder="22999999999" />
+          <TextInput label="CPF ou CNPJ" value={form.owner_cpf_cnpj} onChange={(value) => setForm({ ...form, owner_cpf_cnpj: onlyDigits(value) })} placeholder="Somente números" />
+          <TextInput label="Senha inicial" value={form.owner_password} onChange={(value) => setForm({ ...form, owner_password: value })} placeholder="mínimo 6 caracteres" type="password" />
+          <TextInput label="Dias de trial" value={form.trial_days} onChange={(value) => setForm({ ...form, trial_days: onlyDigits(value) || "7" })} placeholder="7" />
+          <TextInput label="Nome da arena" value={form.arena_name} onChange={(value) => setForm({ ...form, arena_name: value })} placeholder="Arena Beach" />
+          <TextInput label="Slug" value={form.arena_slug} onChange={(value) => setForm({ ...form, arena_slug: slugify(value) })} placeholder="arena-beach" />
         </div>
 
-        {!subscription && (
-          <p className="mt-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">
-            Sem assinatura. Não entra no MRR e não gera cobrança até você criar uma assinatura manualmente.
-          </p>
-        )}
+        <PlanSelector value={form.plan_key} plans={plans} onChange={(plan_key) => setForm({ ...form, plan_key })} />
 
-        {arena.blocked_reason && (
-          <p className="mt-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            {arena.blocked_reason}
-          </p>
-        )}
+        <button disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3.5 font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
+          {loading ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
+          Criar cliente em trial
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+function EditClientModal({
+  row,
+  plans,
+  loading,
+  onClose,
+  onSave,
+}: {
+  row: AdminRow;
+  plans: Plan[];
+  loading: boolean;
+  onClose: () => void;
+  onSave: (form: EditForm) => void;
+}) {
+  const [form, setForm] = useState<EditForm>({
+    arena_id: row.arena.id,
+    subscription_id: row.subscription?.id || null,
+    arena_name: row.arena.name,
+    arena_slug: row.arena.slug || "",
+    owner_name: row.subscription?.customer_name || row.arena.name,
+    owner_email: row.subscription?.customer_email || "",
+    owner_whatsapp: row.subscription?.customer_phone || row.arena.whatsapp || "",
+    owner_cpf_cnpj: row.subscription?.customer_cpf_cnpj || "",
+    plan_key: ((row.subscription?.plan_key || "essential") as PlanKey),
+    status: row.status === "trial_expired" ? "trialing" : row.status,
+  });
+
+  return (
+    <Modal title="Editar cliente" subtitle="Atualize dados comerciais, plano e status sem quebrar o Asaas." onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <TextInput label="Responsável" value={form.owner_name} onChange={(value) => setForm({ ...form, owner_name: value })} />
+        <TextInput label="E-mail" value={form.owner_email} onChange={(value) => setForm({ ...form, owner_email: value })} />
+        <TextInput label="WhatsApp" value={form.owner_whatsapp} onChange={(value) => setForm({ ...form, owner_whatsapp: onlyDigits(value) })} />
+        <TextInput label="CPF/CNPJ" value={form.owner_cpf_cnpj} onChange={(value) => setForm({ ...form, owner_cpf_cnpj: onlyDigits(value) })} />
+        <TextInput label="Nome da arena" value={form.arena_name} onChange={(value) => setForm({ ...form, arena_name: value })} />
+        <TextInput label="Slug" value={form.arena_slug} onChange={(value) => setForm({ ...form, arena_slug: slugify(value) })} />
+
+        <label>
+          <span className="text-sm font-black text-slate-800">Status</span>
+          <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">
+            <option value="trialing">Trial</option>
+            <option value="active">Ativo</option>
+            <option value="overdue">Atrasado</option>
+            <option value="blocked">Bloqueado</option>
+            <option value="cancelled">Cancelado</option>
+          </select>
+        </label>
       </div>
 
-      <div>
-        <p className="font-black text-white">{subscription?.plan_name || "Sem assinatura"}</p>
-        <p className="mt-1 text-sm text-slate-500">
-          {subscription ? `Vence dia ${subscription.due_day || "-"}` : "Não cobra"}
-        </p>
+      <div className="mt-5">
+        <PlanSelector value={form.plan_key} plans={plans} onChange={(plan_key) => setForm({ ...form, plan_key })} />
       </div>
 
-      <div>
-        <p className="text-xl font-black text-white">
-          {subscription ? `R$ ${formatMoney(subscription.monthly_amount || DEFAULT_AMOUNT)}` : "-"}
-        </p>
+      <button type="button" disabled={loading} onClick={() => onSave(form)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3.5 font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
+        {loading ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+        Salvar alterações
+      </button>
+    </Modal>
+  );
+}
 
-        <p className="mt-1 text-sm text-slate-500">
-          Próx: {currentInvoice?.due_date ? formatDate(currentInvoice.due_date) : subscription?.next_due_date ? formatDate(subscription.next_due_date) : "-"}
-        </p>
-      </div>
+function DetailsDrawer({
+  row,
+  loading,
+  onClose,
+  onEdit,
+  onDelete,
+  onTrial,
+  onActive,
+  onBlocked,
+}: {
+  row: AdminRow;
+  loading: string;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTrial: () => void;
+  onActive: () => void;
+  onBlocked: () => void;
+}) {
+  const wa = normalizePhone(row.subscription?.customer_phone || row.arena.whatsapp || "");
 
-      <div>
-        <StatusBadge status={status} />
+  return (
+    <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm">
+      <aside className="ml-auto flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
+        <div className="border-b border-slate-200 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <StatusBadge status={row.status} />
+                <PlanBadge planKey={row.subscription?.plan_key || "essential"} />
+              </div>
+              <h2 className="text-2xl font-black">{row.arena.name}</h2>
+              <p className="mt-1 text-sm text-slate-600">{row.subscription?.customer_name || "Responsável não informado"}</p>
+            </div>
+            <button onClick={onClose} className="rounded-2xl border border-slate-200 p-3 text-slate-500 hover:border-red-400 hover:text-red-300">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
 
-        {currentInvoice && (
-          <p className="mt-2 text-xs text-slate-500">Ref: {formatReference(currentInvoice.reference_month)}</p>
-        )}
-      </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          <InfoGrid
+            items={[
+              ["E-mail", row.subscription?.customer_email || "-"],
+              ["WhatsApp", wa ? `+${wa}` : "-"],
+              ["CPF/CNPJ", row.subscription?.customer_cpf_cnpj || "-"],
+              ["Slug", row.arena.slug || "-"],
+              ["Mensalidade", `R$ ${formatMoney(row.subscription?.monthly_amount || row.plan?.monthly_price || 0)}`],
+              ["Vencimento Asaas", row.subscription?.asaas_next_due_date ? formatDate(row.subscription.asaas_next_due_date) : "-"],
+              ["Trial", row.trialDaysLeft === null ? "-" : row.trialDaysLeft < 0 ? "Expirado" : `${row.trialDaysLeft} dia(s)`],
+              ["Asaas", row.subscription?.asaas_subscription_id || "Não conectado"],
+            ]}
+          />
 
-      <div className="flex flex-wrap gap-2">
-        {saving ? (
-          <button
-            type="button"
-            disabled
-            className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-sm font-black text-slate-300"
-          >
-            <Loader2 size={16} className="animate-spin" />
-            Salvando...
+          {row.arena.blocked_reason && (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+              {row.arena.blocked_reason}
+            </div>
+          )}
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <button onClick={onEdit} className="rounded-2xl border border-slate-200 px-4 py-4 font-black text-slate-950 transition hover:border-slate-400">
+              Editar cliente
+            </button>
+            <a href={wa ? `https://wa.me/${wa}` : "#"} target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-4 text-center font-black text-black">
+              WhatsApp
+            </a>
+            <button disabled={loading.startsWith("edit:")} onClick={onTrial} className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 px-4 py-4 font-black text-yellow-200 disabled:opacity-60">
+              Colocar em trial
+            </button>
+            <button disabled={loading.startsWith("edit:")} onClick={onActive} className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-4 font-black text-emerald-200 disabled:opacity-60">
+              Liberar ativo
+            </button>
+            <button disabled={loading.startsWith("edit:")} onClick={onBlocked} className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 font-black text-red-200 disabled:opacity-60">
+              Bloquear
+            </button>
+            <button disabled={loading.startsWith("delete:")} onClick={onDelete} className="rounded-2xl border border-red-500/20 px-4 py-4 font-black text-red-300 disabled:opacity-60">
+              Excluir
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-black">Pagamentos recentes</h3>
+            <div className="mt-3 space-y-2">
+              {row.payments.length === 0 ? (
+                <p className="text-sm text-slate-600">Nenhum pagamento registrado.</p>
+              ) : (
+                row.payments.slice(0, 5).map((payment) => (
+                  <div key={payment.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                    <span>{translateStatus(payment.status || "pending")}</span>
+                    <span className="font-black text-emerald-300">R$ {formatMoney(payment.value || 0)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  subtitle,
+  children,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl md:p-7">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-black">{title}</h2>
+            <p className="mt-2 text-sm font-medium text-slate-600">{subtitle}</p>
+          </div>
+          <button onClick={onClose} className="rounded-2xl border border-slate-200 p-3 text-slate-500 hover:border-red-400 hover:text-red-300">
+            <X size={20} />
           </button>
-        ) : !subscription ? (
-          <ActionButton onClick={onCreate} icon={<CreditCard size={16} />}>
-            Criar assinatura separada
-          </ActionButton>
-        ) : (
-          <>
-            <ActionButton onClick={onCharge} icon={<MessageCircle size={16} />}>
-              Cobrar
-            </ActionButton>
-
-            <ActionButton onClick={onPaid} icon={<CheckCircle2 size={16} />}>
-              Pago
-            </ActionButton>
-
-            <ActionButton onClick={onOverdue} icon={<AlertTriangle size={16} />}>
-              Atrasar
-            </ActionButton>
-
-            {status === "blocked" ? (
-              <ActionButton onClick={onUnblock} icon={<Unlock size={16} />}>
-                Desbloquear
-              </ActionButton>
-            ) : (
-              <DangerButton onClick={onBlock} icon={<Lock size={16} />}>
-                Bloquear
-              </DangerButton>
-            )}
-          </>
-        )}
+        </div>
+        {children}
       </div>
     </div>
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+function PlanSelector({
+  value,
+  plans,
+  onChange,
+}: {
+  value: PlanKey;
+  plans: Plan[];
+  onChange: (value: PlanKey) => void;
+}) {
   return (
-    <div className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-5 shadow-xl shadow-black/10">
-      <div className="mb-4 text-emerald-400">{icon}</div>
-      <p className="text-sm font-bold text-slate-400">{label}</p>
-      <p className="mt-1 text-3xl font-black text-white">{value}</p>
+    <div>
+      <p className="mb-3 text-sm font-black text-slate-800">Plano</p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {plans.map((plan) => {
+          const active = value === plan.plan_key;
+          return (
+            <button
+              key={plan.id}
+              type="button"
+              onClick={() => onChange(plan.plan_key as PlanKey)}
+              className={
+                active
+                  ? "rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-left shadow-sm"
+                  : "rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-400"
+              }
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-black">{plan.name}</p>
+                {plan.plan_key === "pro" ? <Crown size={18} className="text-emerald-300" /> : <ShieldCheck size={18} className="text-slate-500" />}
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{plan.description}</p>
+              <p className="mt-3 text-xl font-black text-emerald-300">R$ {formatMoney(plan.monthly_price)}/mês</p>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const config = getStatusConfig(status);
-
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black ${config.className}`}>
-      {config.icon}
-      {config.label}
-    </span>
-  );
-}
-
-function ActionButton({ children, onClick, icon }: { children: React.ReactNode; onClick: () => void; icon: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-black text-white transition hover:border-emerald-400 hover:text-emerald-300"
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-function DangerButton({ children, onClick, icon }: { children: React.ReactNode; onClick: () => void; icon: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-black text-red-300 transition hover:bg-red-500 hover:text-white"
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-
-function AdminInput({
+function TextInput({
   label,
   value,
   onChange,
@@ -1232,133 +971,203 @@ function AdminInput({
   type?: string;
 }) {
   return (
-    <div>
-      <label className="mb-2 block text-sm font-black text-slate-300">
-        {label}
-      </label>
-
+    <label>
+      <span className="text-sm font-black text-slate-800">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400"
+        className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-950 outline-none placeholder:text-slate-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
       />
-    </div>
+    </label>
   );
 }
 
-function ResultBox({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  sub,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  sub: string;
+  icon: React.ReactNode;
+  tone: "emerald" | "yellow" | "red" | "blue" | "violet" | "slate";
+}) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#07111B] p-4">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 break-all font-black text-white">{value}</p>
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="h-1 bg-emerald-500/80" />
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-600">{label}</p>
+            <p className="mt-2 text-2xl font-black text-slate-950 md:text-3xl">{value}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">{sub}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700">{icon}</div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function slugifyLocal(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
+function ViewPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "shrink-0 rounded-full border border-slate-950 bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-sm"
+          : "shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+      }
+    >
+      {children}
+    </button>
+  );
 }
 
-function getStatusConfig(status: string) {
-  if (status === "active") {
-    return {
-      label: "Em dia",
-      icon: <CheckCircle2 size={14} />,
-      className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    };
+function StatusBadge({ status }: { status: string }) {
+  const cls =
+    status === "active"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : status === "trialing"
+        ? "bg-amber-50 text-amber-700 ring-amber-200"
+        : status === "trial_expired" || status === "overdue" || status === "blocked"
+          ? "bg-red-50 text-red-700 ring-red-200"
+          : "bg-slate-100 text-slate-600 ring-slate-200";
+
+  return <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wider ring-1 ${cls}`}>{translateStatus(status)}</span>;
+}
+
+function PlanBadge({ planKey }: { planKey: string }) {
+  const pro = planKey === "pro";
+  return <span className={pro ? "rounded-full bg-violet-50 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-violet-700 ring-1 ring-violet-200" : "rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-slate-600 ring-1 ring-slate-200"}>{pro ? "Pro" : "Essencial"}</span>;
+}
+
+function MiniBadge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "yellow" }) {
+  return <span className={tone === "yellow" ? "rounded-full bg-yellow-400/10 px-3 py-1 text-[11px] font-black text-yellow-300" : "rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-700"}>{children}</span>;
+}
+
+function SmallInfo({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">{label}</p>
+      <p className="mt-1 truncate text-xs font-black text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function ActionLine({ title, value, description }: { title: string; value: number; description: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div>
+        <p className="font-black">{title}</p>
+        <p className="mt-1 text-xs text-slate-600">{description}</p>
+      </div>
+      <p className="text-2xl font-black text-emerald-300">{value}</p>
+    </div>
+  );
+}
+
+function CopyLine({ label, value }: { label: string; value: string }) {
+  async function copy() {
+    await navigator.clipboard.writeText(value);
+    alert("Copiado!");
   }
 
-  if (status === "pending") {
-    return {
-      label: "Pendente",
-      icon: <CalendarDays size={14} />,
-      className: "border-yellow-500/30 bg-yellow-500/10 text-yellow-300",
-    };
+  return (
+    <button type="button" onClick={copy} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-slate-400">
+      <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">{label}</p>
+      <p className="mt-1 flex items-center justify-between gap-2 text-sm font-black text-slate-950">
+        <span className="truncate">{value}</span>
+        <Copy size={15} className="shrink-0 text-emerald-300" />
+      </p>
+    </button>
+  );
+}
+
+function InfoGrid({ items }: { items: Array<[string, string]> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {items.map(([label, value]) => (
+        <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">{label}</p>
+          <p className="mt-1 break-words text-sm font-black text-slate-950">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+async function getSessionToken() {
+  const session = await supabase.auth.getSession();
+  return session.data.session?.access_token || "";
+}
+
+function getBusinessStatus(arena: Arena, subscription: Subscription | null, payments: Payment[]) {
+  if (arena.subscription_status === "blocked" || subscription?.status === "blocked") return "blocked";
+
+  const status = String(subscription?.status || "").toLowerCase();
+  const lifecycle = String(subscription?.lifecycle_stage || "").toLowerCase();
+  const asaas = String(subscription?.asaas_status || "").toUpperCase();
+
+  if (status === "trial_expired" || lifecycle === "trial_expired") return "trial_expired";
+  if (status === "overdue" || asaas === "OVERDUE") return "overdue";
+
+  if (status === "trialing" || lifecycle === "trial") {
+    if (subscription?.trial_ends_at && daysBetween(today, subscription.trial_ends_at.slice(0, 10)) < 0) return "trial_expired";
+    return "trialing";
   }
 
-  if (status === "overdue") {
-    return {
-      label: "Atrasado",
-      icon: <AlertTriangle size={14} />,
-      className: "border-red-500/30 bg-red-500/10 text-red-300",
-    };
-  }
+  if (status === "active" || lifecycle === "active" || ["ACTIVE", "RECEIVED", "CONFIRMED"].includes(asaas)) return "active";
+  if (payments.some((payment) => ["RECEIVED", "CONFIRMED"].includes(String(payment.status || "").toUpperCase()))) return "active";
 
-  if (status === "blocked") {
-    return {
-      label: "Bloqueado",
-      icon: <XCircle size={14} />,
-      className: "border-red-500/30 bg-red-500/10 text-red-300",
-    };
-  }
+  return "pending";
+}
 
-  if (status === "partial") {
-    return {
-      label: "Parcial",
-      icon: <Wallet size={14} />,
-      className: "border-blue-500/30 bg-blue-500/10 text-blue-300",
-    };
-  }
-
-  if (status === "no_subscription") {
-    return {
-      label: "Sem assinatura",
-      icon: <ShieldCheck size={14} />,
-      className: "border-white/10 bg-white/5 text-slate-400",
-    };
-  }
-
-  return {
-    label: status || "Indefinido",
-    icon: <ShieldCheck size={14} />,
-    className: "border-white/10 bg-white/5 text-slate-300",
+function translateStatus(status: string) {
+  const labels: Record<string, string> = {
+    active: "Ativo",
+    trialing: "Trial",
+    trial_expired: "Trial expirado",
+    pending: "Pendente",
+    overdue: "Atrasado",
+    blocked: "Bloqueado",
+    cancelled: "Cancelado",
+    RECEIVED: "Recebido",
+    CONFIRMED: "Confirmado",
+    PENDING: "Pendente",
+    OVERDUE: "Atrasado",
   };
+
+  return labels[status] || status || "Pendente";
 }
 
-function getRealStatus(arena: Arena, subscription: Subscription | null, invoice: SubscriptionInvoice | null) {
-  if (arena.subscription_status === "blocked") return "blocked";
-  if (subscription?.status === "blocked") return "blocked";
-
-  if (!subscription) return "no_subscription";
-
-  if (invoice?.status === "paid") return "active";
-  if (invoice?.status === "partial") return "partial";
-  if (invoice?.status === "overdue") return "overdue";
-
-  if (invoice?.status === "pending") {
-    if (isPastDue(invoice.due_date)) return "overdue";
-    return "pending";
-  }
-
-  return subscription.status || "active";
-}
-
-function getNextMonthDueDate(day: number, baseDate?: string) {
-  const base = baseDate ? new Date(`${baseDate}T00:00:00`) : new Date();
-  const due = new Date(base.getFullYear(), base.getMonth() + 1, day);
-  return due.toISOString().slice(0, 10);
-}
-
-function isPastDue(date: string) {
-  return new Date(`${date}T23:59:59`) < new Date();
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function normalizePhone(phone: string) {
-  const clean = String(phone || "").replace(/\D/g, "");
+  const clean = onlyDigits(phone);
+  if (!clean) return "";
   return clean.startsWith("55") ? clean : `55${clean}`;
 }
 
-function formatMoney(value: string | number | null | undefined) {
+function isValidCpfCnpj(value: string) {
+  const digits = onlyDigits(value);
+  return digits.length === 11 || digits.length === 14;
+}
+
+function daysBetween(dateA: string, dateB: string) {
+  const a = new Date(`${dateA}T00:00:00`);
+  const b = new Date(`${dateB}T00:00:00`);
+  return Math.ceil((b.getTime() - a.getTime()) / 86400000);
+}
+
+function formatMoney(value: string | number) {
   return Number(value || 0).toFixed(2).replace(".", ",");
 }
 
@@ -1368,25 +1177,23 @@ function formatDate(date: string) {
   return `${day}/${month}/${year}`;
 }
 
-function formatReference(reference: string | null) {
-  if (!reference) return "-";
+function slugify(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 60);
+}
 
-  const [year, month] = reference.split("-");
 
-  const months: Record<string, string> = {
-    "01": "Jan",
-    "02": "Fev",
-    "03": "Mar",
-    "04": "Abr",
-    "05": "Mai",
-    "06": "Jun",
-    "07": "Jul",
-    "08": "Ago",
-    "09": "Set",
-    "10": "Out",
-    "11": "Nov",
-    "12": "Dez",
-  };
-
-  return `${months[month] || month}/${year}`;
+function initials(value: string) {
+  return String(value || "AF")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 }

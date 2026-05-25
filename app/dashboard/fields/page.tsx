@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, Save, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ImageIcon,
+  Loader2,
+  Plus,
+  Save,
+  Sparkles,
+  Trash2,
+  Upload,
+  Wallet,
+  X,
+} from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { useActiveArena } from "../../../hooks/use-active-arena";
 
@@ -39,7 +51,7 @@ const defaultPricingOptions: PricingOption[] = [
 
 const emptyForm = {
   id: "",
-  name: "Campo 1",
+  name: "Quadra 1",
   sport: "Society",
   surface: "Grama sintética",
   interval_minutes: "0",
@@ -51,7 +63,8 @@ const sports = ["Society", "Beach Tennis", "Tênis", "Futsal", "Vôlei", "Polies
 const surfaces = ["Grama sintética", "Areia", "Saibro", "Concreto", "Madeira", "Piso modular", "Outro"];
 
 export default function FieldsPage() {
- const { activeArenaId } = useActiveArena();
+  const { activeArenaId, loading: arenaLoading } = useActiveArena();
+
   const [fields, setFields] = useState<Field[]>([]);
   const [pricingMap, setPricingMap] = useState<Record<string, PricingOption[]>>({});
   const [loading, setLoading] = useState(true);
@@ -61,41 +74,82 @@ export default function FieldsPage() {
   const [form, setForm] = useState(emptyForm);
   const [pricingOptions, setPricingOptions] = useState<PricingOption[]>(defaultPricingOptions);
 
- useEffect(() => {
-  if (activeArenaId) {
-    loadData();
-  }
-}, [activeArenaId]);
+  useEffect(() => {
+    if (!arenaLoading && activeArenaId) loadData();
+    if (!arenaLoading && !activeArenaId) setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arenaLoading, activeArenaId]);
+
+  const activeFields = useMemo(
+    () => fields.filter((field) => ["active", "ativo", "available", "disponivel"].includes(String(field.status || "").toLowerCase())),
+    [fields]
+  );
+
+  const inactiveFields = useMemo(
+    () => fields.filter((field) => !["active", "ativo", "available", "disponivel"].includes(String(field.status || "").toLowerCase())),
+    [fields]
+  );
+
+  const totalActivePrices = useMemo(() => {
+    return Object.values(pricingMap).reduce(
+      (sum, options) => sum + options.filter((option) => option.is_active).length,
+      0
+    );
+  }, [pricingMap]);
+
+  const minPrice = useMemo(() => {
+    const prices = Object.values(pricingMap)
+      .flat()
+      .filter((option) => option.is_active && Number(option.price || 0) > 0)
+      .map((option) => Number(option.price || 0));
+
+    if (prices.length === 0) return 0;
+    return Math.min(...prices);
+  }, [pricingMap]);
 
   async function loadData() {
-   if (!activeArenaId) return;
+    if (!activeArenaId) return;
 
-    const { data: fieldsData } = await supabase
+    setLoading(true);
+
+    const { data: fieldsData, error: fieldsError } = await supabase
       .from("fields")
       .select("*")
       .eq("arena_id", activeArenaId)
       .order("created_at", { ascending: true });
 
-    const loadedFields = fieldsData || [];
+    if (fieldsError) {
+      setLoading(false);
+      alert(fieldsError.message);
+      return;
+    }
+
+    const loadedFields = (fieldsData || []) as Field[];
     setFields(loadedFields);
 
     if (loadedFields.length > 0) {
       const fieldIds = loadedFields.map((field) => field.id);
 
-      const { data: pricingData } = await supabase
+      const { data: pricingData, error: pricingError } = await supabase
         .from("field_pricing_options")
         .select("*")
         .in("field_id", fieldIds)
         .order("duration_minutes", { ascending: true });
 
+      if (pricingError) {
+        setLoading(false);
+        alert(pricingError.message);
+        return;
+      }
+
       const map: Record<string, PricingOption[]> = {};
 
       for (const field of loadedFields) {
-        const optionsForField = pricingData?.filter((item) => item.field_id === field.id);
+        const optionsForField = pricingData?.filter((item: any) => item.field_id === field.id);
 
         map[field.id] = defaultPricingOptions.map((defaultOption) => {
           const found = optionsForField?.find(
-            (item) => item.duration_minutes === defaultOption.duration_minutes
+            (item: any) => item.duration_minutes === defaultOption.duration_minutes
           );
 
           return {
@@ -110,6 +164,8 @@ export default function FieldsPage() {
       }
 
       setPricingMap(map);
+    } else {
+      setPricingMap({});
     }
 
     setLoading(false);
@@ -118,7 +174,7 @@ export default function FieldsPage() {
   function openNewForm() {
     setForm({
       ...emptyForm,
-      name: `Campo ${fields.length + 1}`,
+      name: `Quadra ${fields.length + 1}`,
     });
 
     setPricingOptions(defaultPricingOptions);
@@ -161,6 +217,11 @@ export default function FieldsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (!activeArenaId) {
+      alert("Arena não carregada.");
+      return;
+    }
+
     if (file.size > 5 * 1024 * 1024) {
       alert("A imagem deve ter no máximo 5MB.");
       return;
@@ -186,6 +247,11 @@ export default function FieldsPage() {
   async function saveField(event: React.FormEvent) {
     event.preventDefault();
 
+    if (!activeArenaId) {
+      alert("Arena não carregada.");
+      return;
+    }
+
     if (!form.name.trim()) {
       alert("Informe o nome da quadra.");
       return;
@@ -199,7 +265,7 @@ export default function FieldsPage() {
     }
 
     for (const option of activePricing) {
-      if (!option.price) {
+      if (!option.price || Number(option.price) <= 0) {
         alert(`Informe o valor normal para ${option.label}.`);
         return;
       }
@@ -211,12 +277,12 @@ export default function FieldsPage() {
 
     const payload = {
       arena_id: activeArenaId,
-      name: form.name,
+      name: form.name.trim(),
       photo_url: form.photo_url || null,
       sport: form.sport,
       surface: form.surface,
       price: Number(firstActiveOption.price),
-      use_weekend_price: activePricing.some((option) => option.weekend_price),
+      use_weekend_price: activePricing.some((option) => Boolean(option.weekend_price)),
       weekend_price: firstActiveOption.weekend_price
         ? Number(firstActiveOption.weekend_price)
         : null,
@@ -280,52 +346,192 @@ export default function FieldsPage() {
     setFields((current) => current.filter((field) => field.id !== fieldId));
   }
 
-  if (loading) {
-    return <p className="text-white">Carregando quadras...</p>;
+  if (arenaLoading || loading) {
+    return (
+      <main className="flex min-h-[70vh] items-center justify-center text-white">
+        <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-[#0F172A] px-6 py-4">
+          <Loader2 className="animate-spin text-emerald-400" />
+          Carregando quadras...
+        </div>
+      </main>
+    );
+  }
+
+  if (!activeArenaId) {
+    return (
+      <main className="min-h-screen text-white">
+        <div className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-8">
+          <h1 className="text-3xl font-black">Nenhuma arena selecionada</h1>
+          <p className="mt-2 text-slate-400">Selecione uma arena para cadastrar quadras.</p>
+        </div>
+      </main>
+    );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-start justify-between gap-6">
-        <div>
-          <p className="text-sm font-semibold text-emerald-400">Gestão da arena</p>
-          <h1 className="mt-1 text-4xl font-bold text-white">Quadras</h1>
-          <p className="mt-2 max-w-2xl text-slate-400">
-            Cadastre quadras, duração das reservas e preços por período.
-          </p>
-        </div>
+    <main className="space-y-6 pb-24 text-white md:pb-0">
+      <section className="overflow-hidden rounded-[2rem] border border-emerald-500/20 bg-[#0F172A] shadow-2xl shadow-black/20">
+        <div className="relative p-6 md:p-8">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.16),transparent_35%)]" />
 
-        <button
-          onClick={openNewForm}
-          className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black hover:bg-emerald-400"
-        >
-          <Plus size={18} />
-          Nova quadra
-        </button>
-      </div>
-
-      {showForm && (
-        <form onSubmit={saveField} className="rounded-3xl border border-slate-800 bg-[#111827] p-6">
-          <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
             <div>
-              <h2 className="text-2xl font-bold text-white">
-                {form.id ? "Editar quadra" : "Nova quadra"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Configure os preços por duração. Se o fim de semana for diferente, preencha a coluna de sábado/domingo.
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+                <Sparkles size={16} />
+                Estrutura e preços
+              </div>
+
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">Quadras</h1>
+
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400 md:text-base">
+                Cadastre quadras, fotos, modalidades, duração das reservas e preços para o link público.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={() => setShowForm(false)}
-              className="rounded-xl border border-slate-700 p-2 text-slate-400 hover:text-white"
+              onClick={openNewForm}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400"
             >
-              <X size={18} />
+              <Plus size={18} />
+              Nova quadra
             </button>
           </div>
+        </div>
+      </section>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Quadras" value={fields.length} description="cadastradas" tone="emerald" />
+        <MetricCard title="Ativas" value={activeFields.length} description="aparecem no link público" tone="blue" />
+        <MetricCard title="Preços ativos" value={totalActivePrices} description="opções de duração" tone="purple" />
+        <MetricCard title="A partir de" value={minPrice ? `R$ ${formatMoney(minPrice)}` : "-"} description="menor preço ativo" tone="yellow" />
+      </section>
+
+      {inactiveFields.length > 0 && (
+        <section className="rounded-[2rem] border border-yellow-500/20 bg-yellow-500/10 p-5">
+          <div className="flex gap-3">
+            <AlertTriangle className="mt-1 shrink-0 text-yellow-300" />
+            <div>
+              <h2 className="text-xl font-black text-yellow-100">
+                {inactiveFields.length} quadra(s) inativa(s)
+              </h2>
+              <p className="mt-1 text-sm text-yellow-100/80">
+                Quadras inativas não aparecem no link público de agendamento.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {showForm && (
+        <FieldForm
+          form={form}
+          setForm={setForm}
+          pricingOptions={pricingOptions}
+          updatePricingOption={updatePricingOption}
+          handleChange={handleChange}
+          uploadFieldPhoto={uploadFieldPhoto}
+          onSubmit={saveField}
+          saving={saving}
+          onClose={() => setShowForm(false)}
+        />
+      )}
+
+      {fields.length === 0 ? (
+        <section className="rounded-[2rem] border border-dashed border-white/10 bg-[#0F172A] p-10 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-500/10 text-emerald-300">
+            <ImageIcon size={32} />
+          </div>
+
+          <h2 className="mt-5 text-2xl font-black text-white">Nenhuma quadra cadastrada</h2>
+
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+            Cadastre a primeira quadra para liberar horários, preços e agendamento público.
+          </p>
+
+          <button
+            type="button"
+            onClick={openNewForm}
+            className="mt-6 rounded-2xl bg-emerald-500 px-6 py-4 font-black text-black transition hover:bg-emerald-400"
+          >
+            Cadastrar primeira quadra
+          </button>
+        </section>
+      ) : (
+        <section className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {fields.map((field) => {
+            const prices = pricingMap[field.id] || [];
+
+            return (
+              <FieldCard
+                key={field.id}
+                field={field}
+                prices={prices}
+                onEdit={() => openEditForm(field)}
+                onDelete={() => deleteField(field.id)}
+              />
+            );
+          })}
+        </section>
+      )}
+    </main>
+  );
+}
+
+function FieldForm({
+  form,
+  setForm,
+  pricingOptions,
+  updatePricingOption,
+  handleChange,
+  uploadFieldPhoto,
+  onSubmit,
+  saving,
+  onClose,
+}: {
+  form: typeof emptyForm;
+  setForm: (form: typeof emptyForm) => void;
+  pricingOptions: PricingOption[];
+  updatePricingOption: (
+    durationMinutes: number,
+    field: "price" | "weekend_price" | "is_active",
+    value: string | boolean
+  ) => void;
+  handleChange: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement>;
+  uploadFieldPhoto: React.ChangeEventHandler<HTMLInputElement>;
+  onSubmit: (event: React.FormEvent) => void;
+  saving: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-5 shadow-2xl shadow-black/20 md:p-7">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="mb-3 inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black uppercase tracking-widest text-emerald-300">
+            {form.id ? "Editar quadra" : "Nova quadra"}
+          </div>
+
+          <h2 className="text-2xl font-black text-white md:text-3xl">
+            {form.id ? form.name : "Cadastrar nova quadra"}
+          </h2>
+
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Configure preços por duração. O preço de sábado/domingo é opcional; se ficar vazio, usa o valor normal.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-2xl border border-white/10 p-3 text-slate-400 transition hover:border-red-400 hover:text-red-300"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-5">
+          <div className="grid gap-5 md:grid-cols-2">
             <Input
               label="Nome da quadra"
               helper="Exemplo: Campo 1, Quadra Beach 1, Quadra Principal"
@@ -345,7 +551,7 @@ export default function FieldsPage() {
 
             <Select
               label="Tipo de piso"
-              helper="Ajuda o cliente a entender a estrutura da quadra."
+              helper="Ajuda o cliente a entender a estrutura."
               name="surface"
               value={form.surface}
               onChange={handleChange}
@@ -360,245 +566,310 @@ export default function FieldsPage() {
               onChange={handleChange}
               options={["0", "5", "10", "15", "30"]}
             />
+          </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 md:col-span-2">
-              <h3 className="font-bold text-white">Durações e preços disponíveis</h3>
-              <p className="mt-1 text-sm text-slate-400">
-                Ative as durações que o cliente pode reservar. Preço normal vale para dias úteis.
-                Preço sábado/domingo é opcional; se ficar vazio, usa o preço normal.
-              </p>
-
-              <div className="mt-5 space-y-3">
-                {pricingOptions.map((option) => (
-                  <div
-                    key={option.duration_minutes}
-                    className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                  >
-                    <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[120px_120px_1fr_1fr]">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePricingOption(
-                            option.duration_minutes,
-                            "is_active",
-                            !option.is_active
-                          )
-                        }
-                        className={
-                          option.is_active
-                            ? "rounded-xl bg-emerald-500 px-4 py-2 font-bold text-black"
-                            : "rounded-xl bg-slate-800 px-4 py-2 font-bold text-slate-400"
-                        }
-                      >
-                        {option.is_active ? "Ativo" : "Inativo"}
-                      </button>
-
-                      <strong className="text-white">{option.label}</strong>
-
-                      <MoneyInputSimple
-                        label="Preço normal"
-                        value={option.price}
-                        disabled={!option.is_active}
-                        onChange={(value) =>
-                          updatePricingOption(option.duration_minutes, "price", value)
-                        }
-                      />
-
-                      <MoneyInputSimple
-                        label="Preço sábado/domingo"
-                        value={option.weekend_price}
-                        disabled={!option.is_active}
-                        placeholder="Opcional"
-                        onChange={(value) =>
-                          updatePricingOption(option.duration_minutes, "weekend_price", value)
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
+          <div className="rounded-[2rem] border border-white/10 bg-[#07111B] p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+              <div>
+                <h3 className="text-xl font-black text-white">Durações e preços</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Ative as opções que o cliente pode reservar pelo link público.
+                </p>
               </div>
+
+              <Wallet className="text-emerald-400" />
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 md:col-span-2">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="font-bold text-white">Quadra ativa?</h3>
-                  <p className="text-sm text-slate-400">
-                    Quadras inativas não aparecem no agendamento público.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setForm({
-                      ...form,
-                      status: form.status === "active" ? "inactive" : "active",
-                    })
-                  }
-                  className={
-                    form.status === "active"
-                      ? "rounded-xl bg-emerald-500 px-4 py-2 font-bold text-black"
-                      : "rounded-xl bg-slate-800 px-4 py-2 font-bold text-slate-300"
-                  }
-                >
-                  {form.status === "active" ? "Ativa" : "Inativa"}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 md:col-span-2">
-              <h3 className="font-bold text-white">Foto da quadra</h3>
-              <p className="mt-1 text-sm text-slate-400">
-                Opcional. Essa foto ajuda o cliente a reconhecer o espaço.
-              </p>
-
-              {form.photo_url && (
-                <img
-                  src={form.photo_url}
-                  alt="Foto da quadra"
-                  className="mt-4 h-48 w-full max-w-md rounded-xl object-cover"
+            <div className="mt-5 space-y-3">
+              {pricingOptions.map((option) => (
+                <PricingRow
+                  key={option.duration_minutes}
+                  option={option}
+                  updatePricingOption={updatePricingOption}
                 />
-              )}
-
-              <div className="mt-4 flex flex-col gap-3 md:flex-row">
-                <label className="cursor-pointer rounded-xl bg-slate-800 px-4 py-3 text-center font-semibold text-white hover:bg-slate-700">
-                  {form.photo_url ? "Trocar foto" : "Enviar foto"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={uploadFieldPhoto}
-                    className="hidden"
-                  />
-                </label>
-
-                {form.photo_url && (
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, photo_url: "" })}
-                    className="rounded-xl border border-red-500/40 px-4 py-3 font-semibold text-red-400 hover:bg-red-500 hover:text-white"
-                  >
-                    Remover foto
-                  </button>
-                )}
-              </div>
+              ))}
             </div>
           </div>
 
-          <button
-            disabled={saving}
-            className="mt-6 flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 font-bold text-black hover:bg-emerald-400 disabled:opacity-60"
-          >
-            <Save size={18} />
-            {saving ? "Salvando..." : "Salvar quadra"}
-          </button>
-        </form>
-      )}
-
-      {fields.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-slate-700 bg-[#111827] p-8 text-center">
-          <h2 className="text-2xl font-bold text-white">Nenhuma quadra cadastrada</h2>
-          <p className="mt-2 text-slate-400">
-            Cadastre a primeira quadra para começar a receber reservas.
-          </p>
-          <button
-            onClick={openNewForm}
-            className="mt-5 rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black hover:bg-emerald-400"
-          >
-            Cadastrar primeira quadra
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {fields.map((field) => {
-            const prices = pricingMap[field.id] || [];
-
-            return (
-              <div
-                key={field.id}
-                className="overflow-hidden rounded-3xl border border-slate-800 bg-[#111827]"
-              >
-                {field.photo_url ? (
-                  <img
-                    src={field.photo_url}
-                    alt={field.name}
-                    className="h-40 w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-40 items-center justify-center bg-slate-950 text-slate-500">
-                    Sem foto
-                  </div>
-                )}
-
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">{field.name}</h3>
-                      <p className="text-sm text-slate-400">
-                        {field.sport} • {field.surface}
-                      </p>
-                    </div>
-
-                    <span
-                      className={
-                        field.status === "active"
-                          ? "rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-300"
-                          : "rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-400"
-                      }
-                    >
-                      {field.status === "active" ? "Ativa" : "Inativa"}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl bg-slate-950/60 p-4">
-                    <p className="text-sm font-semibold text-slate-300">Preços disponíveis</p>
-
-                    <div className="mt-3 space-y-2">
-                      {prices
-                        .filter((option) => option.is_active)
-                        .map((option) => (
-                          <div key={option.duration_minutes} className="text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-slate-400">{option.label}</span>
-                              <strong className="text-white">
-                                R$ {formatMoney(option.price)}
-                              </strong>
-                            </div>
-
-                            {option.weekend_price && (
-                              <div className="mt-1 flex justify-between text-xs">
-                                <span className="text-slate-500">Sáb/Dom</span>
-                                <strong className="text-emerald-300">
-                                  R$ {formatMoney(option.weekend_price)}
-                                </strong>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => openEditForm(field)}
-                      className="flex-1 rounded-xl bg-slate-800 px-4 py-3 font-semibold text-white hover:bg-slate-700"
-                    >
-                      Editar
-                    </button>
-
-                    <button
-                      onClick={() => deleteField(field.id)}
-                      className="rounded-xl border border-red-500/40 px-4 py-3 text-red-400 hover:bg-red-500 hover:text-white"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
+          <div className="rounded-[2rem] border border-white/10 bg-[#07111B] p-5">
+            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+              <div>
+                <h3 className="text-xl font-black text-white">Status da quadra</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Quadras inativas não aparecem no link público.
+                </p>
               </div>
-            );
-          })}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    status: form.status === "active" ? "inactive" : "active",
+                  })
+                }
+                className={
+                  form.status === "active"
+                    ? "rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black"
+                    : "rounded-2xl bg-slate-800 px-5 py-3 font-black text-slate-300"
+                }
+              >
+                {form.status === "active" ? "Ativa" : "Inativa"}
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+
+        <aside className="rounded-[2rem] border border-white/10 bg-[#07111B] p-5">
+          <h3 className="text-xl font-black text-white">Foto da quadra</h3>
+
+          <p className="mt-1 text-sm leading-relaxed text-slate-400">
+            Fotos aumentam a confiança do cliente no link público.
+          </p>
+
+          <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-[#020B0C]">
+            {form.photo_url ? (
+              <img
+                src={form.photo_url}
+                alt="Foto da quadra"
+                className="h-64 w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-64 flex-col items-center justify-center text-slate-600">
+                <ImageIcon size={46} />
+                <p className="mt-3 text-sm font-bold">Sem foto</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400">
+              <Upload size={18} />
+              {form.photo_url ? "Trocar foto" : "Enviar foto"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={uploadFieldPhoto}
+                className="hidden"
+              />
+            </label>
+
+            {form.photo_url && (
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, photo_url: "" })}
+                className="rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 font-black text-red-300 transition hover:bg-red-500 hover:text-white"
+              >
+                Remover foto
+              </button>
+            )}
+          </div>
+        </aside>
+      </div>
+
+      <button
+        disabled={saving}
+        className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-6 py-5 text-lg font-black text-black transition hover:bg-emerald-400 disabled:opacity-60 md:w-auto"
+      >
+        {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+        {saving ? "Salvando..." : "Salvar quadra"}
+      </button>
+    </form>
+  );
+}
+
+function FieldCard({
+  field,
+  prices,
+  onEdit,
+  onDelete,
+}: {
+  field: Field;
+  prices: PricingOption[];
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const active = ["active", "ativo", "available", "disponivel"].includes(String(field.status || "").toLowerCase());
+  const activePrices = prices.filter((option) => option.is_active);
+
+  return (
+    <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0F172A] shadow-xl shadow-black/10">
+      <div className="relative h-48 bg-[#07111B]">
+        {field.photo_url ? (
+          <img src={field.photo_url} alt={field.name} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-slate-600">
+            <ImageIcon size={42} />
+            <p className="mt-2 text-sm font-bold">Sem foto</p>
+          </div>
+        )}
+
+        <div className="absolute left-4 top-4">
+          <span
+            className={
+              active
+                ? "rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-black"
+                : "rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-slate-300"
+            }
+          >
+            {active ? "Ativa" : "Inativa"}
+          </span>
+        </div>
+      </div>
+
+      <div className="p-5">
+        <h3 className="text-2xl font-black text-white">{field.name}</h3>
+
+        <p className="mt-1 text-sm text-slate-400">
+          {field.sport || "Quadra"} {field.surface ? `• ${field.surface}` : ""}
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <SmallStat label="Duração mín." value={`${field.min_duration_minutes || 60} min`} />
+          <SmallStat label="Intervalo" value={`${field.interval_minutes || 0} min`} />
+        </div>
+
+        <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-[#07111B] p-4">
+          <p className="text-sm font-black text-slate-300">Preços disponíveis</p>
+
+          <div className="mt-3 space-y-2">
+            {activePrices.length === 0 ? (
+              <p className="text-sm text-slate-500">Nenhum preço ativo.</p>
+            ) : (
+              activePrices.map((option) => (
+                <div key={option.duration_minutes} className="rounded-2xl bg-[#0F172A] p-3">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-sm font-bold text-slate-300">{option.label}</span>
+                    <strong className="text-sm text-white">R$ {formatMoney(option.price)}</strong>
+                  </div>
+
+                  {option.weekend_price && (
+                    <div className="mt-1 flex justify-between gap-3 text-xs">
+                      <span className="text-slate-500">Sáb/Dom</span>
+                      <strong className="text-emerald-300">R$ {formatMoney(option.weekend_price)}</strong>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-2xl bg-slate-800 px-4 py-4 font-black text-white transition hover:bg-slate-700"
+          >
+            Editar quadra
+          </button>
+
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-4 text-red-300 transition hover:bg-red-500 hover:text-white"
+            aria-label="Excluir quadra"
+          >
+            <Trash2 size={18} />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function PricingRow({
+  option,
+  updatePricingOption,
+}: {
+  option: PricingOption;
+  updatePricingOption: (
+    durationMinutes: number,
+    field: "price" | "weekend_price" | "is_active",
+    value: string | boolean
+  ) => void;
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-[#0F172A] p-4">
+      <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[120px_100px_1fr_1fr]">
+        <button
+          type="button"
+          onClick={() =>
+            updatePricingOption(
+              option.duration_minutes,
+              "is_active",
+              !option.is_active
+            )
+          }
+          className={
+            option.is_active
+              ? "flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black"
+              : "rounded-2xl bg-slate-800 px-4 py-3 font-black text-slate-400"
+          }
+        >
+          {option.is_active && <CheckCircle2 size={16} />}
+          {option.is_active ? "Ativo" : "Inativo"}
+        </button>
+
+        <strong className="text-white">{option.label}</strong>
+
+        <MoneyInputSimple
+          label="Preço normal"
+          value={option.price}
+          disabled={!option.is_active}
+          onChange={(value) =>
+            updatePricingOption(option.duration_minutes, "price", value)
+          }
+        />
+
+        <MoneyInputSimple
+          label="Preço sábado/domingo"
+          value={option.weekend_price}
+          disabled={!option.is_active}
+          placeholder="Opcional"
+          onChange={(value) =>
+            updatePricingOption(option.duration_minutes, "weekend_price", value)
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  title,
+  value,
+  description,
+  tone,
+}: {
+  title: string;
+  value: string | number;
+  description: string;
+  tone: "emerald" | "blue" | "purple" | "yellow";
+}) {
+  const color =
+    tone === "emerald"
+      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+      : tone === "blue"
+        ? "border-blue-500/20 bg-blue-500/10 text-blue-300"
+        : tone === "purple"
+          ? "border-violet-500/20 bg-violet-500/10 text-violet-300"
+          : "border-yellow-500/20 bg-yellow-500/10 text-yellow-300";
+
+  return (
+    <div className={`rounded-[2rem] border p-5 ${color}`}>
+      <p className="text-sm font-bold opacity-80">{title}</p>
+      <p className="mt-2 text-4xl font-black">{value}</p>
+      <p className="mt-2 text-xs font-bold opacity-70">{description}</p>
+    </div>
+  );
+}
+
+function SmallStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#07111B] p-3">
+      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-black text-white">{value}</p>
     </div>
   );
 }
@@ -622,12 +893,12 @@ function Input({
 }) {
   return (
     <label>
-      <span className="text-sm font-medium text-slate-200">{label}</span>
+      <span className="text-sm font-black text-slate-200">{label}</span>
       <input
         name={name}
         value={value}
         onChange={onChange}
-        className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-emerald-400"
+        className="mt-2 w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none focus:border-emerald-400"
       />
       <span className="mt-1 block text-xs text-slate-500">{helper}</span>
     </label>
@@ -649,10 +920,10 @@ function MoneyInputSimple({
 }) {
   return (
     <label>
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-black text-slate-400">{label}</span>
 
-      <div className="mt-1 flex overflow-hidden rounded-xl border border-slate-700 bg-slate-950 focus-within:border-emerald-400">
-        <span className="flex items-center border-r border-slate-700 bg-slate-900 px-4 font-bold text-emerald-400">
+      <div className="mt-1 flex overflow-hidden rounded-2xl border border-white/10 bg-[#07111B] focus-within:border-emerald-400">
+        <span className="flex items-center border-r border-white/10 bg-[#020B0C] px-4 font-black text-emerald-400">
           R$
         </span>
 
@@ -661,7 +932,7 @@ function MoneyInputSimple({
           disabled={disabled}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value.replace(",", "."))}
-          className="w-full bg-transparent p-3 text-white outline-none disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-full bg-transparent p-4 text-white outline-none disabled:cursor-not-allowed disabled:opacity-40"
         />
       </div>
     </label>
@@ -685,13 +956,13 @@ function Select({
 }) {
   return (
     <label>
-      <span className="text-sm font-medium text-slate-200">{label}</span>
+      <span className="text-sm font-black text-slate-200">{label}</span>
 
       <select
         name={name}
         value={value}
         onChange={onChange}
-        className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-emerald-400"
+        className="mt-2 w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none focus:border-emerald-400"
       >
         {options.map((option) => (
           <option key={option} value={option}>

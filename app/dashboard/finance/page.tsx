@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -427,34 +428,50 @@ export default function FinancePage() {
   }
 
   if (arenaLoading || loading) {
-    return <p className="text-white">Carregando financeiro...</p>;
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center text-white">
+        <div className="rounded-3xl border border-white/10 bg-[#111827] px-6 py-5 text-sm font-bold shadow-2xl shadow-black/20">
+          Carregando financeiro...
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-        <div>
-          <p className="text-sm font-semibold text-emerald-400">
-            Gestão financeira
-          </p>
-          <h1 className="mt-1 text-4xl font-bold text-white">
-            {getViewTitle(view)}
-          </h1>
-          <p className="mt-2 max-w-2xl text-slate-400">
-            {getViewDescription(view)} • {arenaName}
-          </p>
-        </div>
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-[2rem] border border-emerald-500/15 bg-[#0B111A] shadow-2xl shadow-black/20">
+        <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-cyan-400" />
 
-        {(view === "relatorio" || view === "tabela") && (
-          <button
-            onClick={downloadPdf}
-            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black hover:bg-emerald-400"
-          >
-            <Download size={18} />
-            Baixar PDF
-          </button>
-        )}
-      </div>
+        <div className="grid gap-5 p-5 md:p-6 xl:grid-cols-[1fr_auto] xl:items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">
+              <Wallet size={15} />
+              Financeiro operacional
+            </div>
+
+            <h1 className="mt-4 text-3xl font-black tracking-tight text-white md:text-4xl">
+              {getViewTitle(view)}
+            </h1>
+
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+              {getViewDescription(view)} • {arenaName}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={downloadPdf}
+              className="flex items-center justify-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500 px-5 py-3 text-sm font-black text-black shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400"
+            >
+              <Download size={18} />
+              Baixar PDF
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <FinanceViewTabs active={view} />
 
       {view === "resumo" && (
         <div className="space-y-6">
@@ -471,7 +488,7 @@ export default function FinancePage() {
             <StatusCard title="Pagos no período" value={paidInvoices.length} color="emerald" />
           </div>
 
-          <div className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+          <div className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
             <h2 className="text-2xl font-bold text-white">Resumo do período</h2>
             <p className="mt-1 text-sm text-slate-400">Receita confirmada, prevista e pendências.</p>
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -487,7 +504,7 @@ export default function FinancePage() {
       )}
 
       {view === "mensalistas" && (
-        <section className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+        <section className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
           <div className="mb-5 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
               <h2 className="text-2xl font-bold text-white">Mensalistas e cobranças</h2>
@@ -500,10 +517,10 @@ export default function FinancePage() {
       )}
 
       {view === "grafico" && (
-        <section className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+        <section className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
           <h2 className="text-2xl font-bold text-white">Receita dos últimos 7 dias</h2>
           <p className="mt-1 text-sm text-slate-400">Reservas + mensalistas pagos.</p>
-          <div className="mt-5 flex h-72 items-end gap-3 rounded-2xl bg-slate-950/60 p-4">
+          <div className="mt-5 flex h-72 items-end gap-3 rounded-2xl bg-[#0B111A] p-4">
             {chartData.map((item) => {
               const height = Math.max((item.total / maxChartValue) * 100, 5);
               return (
@@ -521,7 +538,7 @@ export default function FinancePage() {
       )}
 
       {view === "status" && (
-        <section className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+        <section className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
           <h2 className="text-2xl font-bold text-white">Status financeiro</h2>
           <p className="mt-1 text-sm text-slate-400">Reservas e mensalistas no período selecionado.</p>
           <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
@@ -533,7 +550,7 @@ export default function FinancePage() {
       )}
 
       {view === "relatorio" && (
-        <section className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+        <section className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
           <div className="mb-5 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
               <h2 className="text-2xl font-bold text-white">Relatório financeiro</h2>
@@ -551,7 +568,7 @@ export default function FinancePage() {
       )}
 
       {view === "tabela" && (
-        <section className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+        <section className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
           <div className="mb-5 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
               <h2 className="text-2xl font-bold text-white">Tabela de lançamentos</h2>
@@ -570,9 +587,43 @@ export default function FinancePage() {
   );
 }
 
+function FinanceViewTabs({ active }: { active: ViewType }) {
+  const tabs: { key: ViewType; label: string; helper: string }[] = [
+    { key: "resumo", label: "Visão geral", helper: "indicadores" },
+    { key: "mensalistas", label: "Cobranças", helper: "mensalistas" },
+    { key: "grafico", label: "Gráfico", helper: "7 dias" },
+    { key: "status", label: "Status", helper: "situação" },
+    { key: "relatorio", label: "Relatório", helper: "PDF" },
+    { key: "tabela", label: "Tabela", helper: "detalhado" },
+  ];
+
+  return (
+    <nav className="rounded-[2rem] border border-white/10 bg-[#111827] p-3 shadow-2xl shadow-black/10">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        {tabs.map((tab) => (
+          <Link
+            key={tab.key}
+            href={`/dashboard/finance?view=${tab.key}`}
+            className={
+              active === tab.key
+                ? "rounded-2xl bg-emerald-500 px-4 py-3 text-left text-sm font-black text-black shadow-lg shadow-emerald-500/20"
+                : "rounded-2xl border border-white/10 bg-[#0B111A] px-4 py-3 text-left text-sm font-black text-slate-200 transition hover:border-emerald-500/40 hover:text-emerald-300"
+            }
+          >
+            <span className="block">{tab.label}</span>
+            <span className={active === tab.key ? "mt-1 block text-[11px] font-bold text-black/60" : "mt-1 block text-[11px] font-bold text-slate-500"}>
+              {tab.helper}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function InvoicePreview({ invoices, onPaid, onPartial, onCharge }: { invoices: RecurringInvoice[]; onPaid: (invoice: RecurringInvoice) => void; onPartial: (invoice: RecurringInvoice) => void; onCharge: (invoice: RecurringInvoice) => void }) {
   return (
-    <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-5">
+    <div className="rounded-[2rem] border border-red-500/20 bg-red-500/5 p-5 shadow-2xl shadow-black/10">
       <div className="flex items-center gap-2">
         <AlertTriangle className="text-red-300" size={22} />
         <h2 className="text-2xl font-bold text-white">Atrasos importantes</h2>
@@ -580,7 +631,7 @@ function InvoicePreview({ invoices, onPaid, onPartial, onCharge }: { invoices: R
       <p className="mt-1 text-sm text-slate-400">Mensalistas com cobrança vencida.</p>
       <div className="mt-5 space-y-3">
         {invoices.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-slate-400">Nenhum mensalista atrasado.</div>
+          <div className="rounded-2xl border border-white/10 bg-[#0B111A] p-5 text-slate-400">Nenhum mensalista atrasado.</div>
         ) : (
           invoices.map((invoice) => <InvoiceRow key={invoice.id} invoice={invoice} onPaid={onPaid} onPartial={onPartial} onCharge={onCharge} />)
         )}
@@ -593,7 +644,7 @@ function InvoiceTable({ invoices, onPaid, onPartial, onCharge }: { invoices: Rec
   return (
     <div className="space-y-3">
       {invoices.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">Nenhuma mensalidade no período.</div>
+        <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-slate-400">Nenhuma mensalidade no período.</div>
       ) : (
         invoices.map((invoice) => <InvoiceRow key={invoice.id} invoice={invoice} onPaid={onPaid} onPartial={onPartial} onCharge={onCharge} />)
       )}
@@ -606,7 +657,7 @@ function InvoiceRow({ invoice, onPaid, onPartial, onCharge }: { invoice: Recurri
   const overdue = invoice.status !== "paid" && invoice.due_date < new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+    <div className="rounded-2xl border border-white/10 bg-[#0B111A] p-4">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -650,13 +701,13 @@ function InvoiceRow({ invoice, onPaid, onPartial, onCharge }: { invoice: Recurri
 
 function BookingTable({ bookings }: { bookings: Booking[] }) {
   if (bookings.length === 0) {
-    return <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">Nenhuma reserva no período.</div>;
+    return <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-slate-400">Nenhuma reserva no período.</div>;
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-800">
+    <div className="overflow-x-auto rounded-2xl border border-white/10">
       <table className="w-full min-w-[900px] text-left text-sm">
-        <thead className="bg-slate-950 text-slate-300">
+        <thead className="bg-[#0B111A] text-slate-300">
           <tr>
             <th className="p-4">Cliente</th>
             <th className="p-4">Quadra</th>
@@ -690,7 +741,7 @@ function PeriodFilter({ period, setPeriod, startDate, endDate, setStartDate, set
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       <label>
         <span className="text-xs font-medium text-slate-400">Período</span>
-        <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodType)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-emerald-400">
+        <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodType)} className="mt-1 w-full rounded-xl border border-white/10 bg-[#0B111A] p-3 text-white outline-none focus:border-emerald-400">
           <option value="today">Hoje</option>
           <option value="yesterday">Ontem</option>
           <option value="last7">Últimos 7 dias</option>
@@ -701,11 +752,11 @@ function PeriodFilter({ period, setPeriod, startDate, endDate, setStartDate, set
       </label>
       <label>
         <span className="text-xs font-medium text-slate-400">Início</span>
-        <input type="date" value={startDate} disabled={period !== "custom"} onChange={(event) => setStartDate(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-emerald-400 disabled:opacity-60" />
+        <input type="date" value={startDate} disabled={period !== "custom"} onChange={(event) => setStartDate(event.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-[#0B111A] p-3 text-white outline-none focus:border-emerald-400 disabled:opacity-60" />
       </label>
       <label>
         <span className="text-xs font-medium text-slate-400">Fim</span>
-        <input type="date" value={endDate} disabled={period !== "custom"} onChange={(event) => setEndDate(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-emerald-400 disabled:opacity-60" />
+        <input type="date" value={endDate} disabled={period !== "custom"} onChange={(event) => setEndDate(event.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-[#0B111A] p-3 text-white outline-none focus:border-emerald-400 disabled:opacity-60" />
       </label>
     </div>
   );
@@ -713,7 +764,7 @@ function PeriodFilter({ period, setPeriod, startDate, endDate, setStartDate, set
 
 function StatCard({ title, value, helper, icon }: { title: string; value: string; helper: string; icon: React.ReactNode }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-[#111827] p-5">
+    <div className="rounded-[2rem] border border-white/10 bg-[#111827] p-5 shadow-2xl shadow-black/10">
       <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400">{icon}</div>
       <p className="text-sm text-slate-400">{title}</p>
       <h2 className="mt-1 text-3xl font-bold text-white">{value}</h2>
@@ -732,7 +783,7 @@ function StatusCard({ title, value, color }: { title: string; value: number; col
 }
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl bg-slate-950/60 p-4"><p className="text-sm text-slate-400">{label}</p><h3 className="mt-1 text-2xl font-bold text-white">{value}</h3></div>;
+  return <div className="rounded-2xl bg-[#0B111A] p-4"><p className="text-sm text-slate-400">{label}</p><h3 className="mt-1 text-2xl font-bold text-white">{value}</h3></div>;
 }
 
 function StatusBadge({ status }: { status: string }) {

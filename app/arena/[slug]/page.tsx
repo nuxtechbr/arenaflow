@@ -8,6 +8,10 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Globe,
+  Navigation,
+  ExternalLink,
+  Camera,
   ImageIcon,
   Loader2,
   LockKeyhole,
@@ -20,9 +24,6 @@ import {
   UserRound,
 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
-
-type FieldRelation = { name: string } | { name: string }[] | null | undefined;
-type PublicTab = "avulsa" | "fixa" | "minhas" | "info";
 
 type Arena = {
   id: string;
@@ -107,7 +108,6 @@ type Booking = {
 type RecurringBooking = {
   id: string;
   field_id: string;
-  customer_id?: string | null;
   customer_name: string;
   customer_whatsapp: string | null;
   weekday: number;
@@ -140,30 +140,10 @@ type Customer = {
   whatsapp: string;
 };
 
-type Invoice = {
-  id: string;
-  recurring_booking_id: string | null;
-  customer_id: string | null;
-  customer_name: string;
-  description: string | null;
-  reference_month: string | null;
-  due_date: string;
-  amount: number;
-  paid_amount: number | null;
-  status: string;
-};
+type FieldRelation = { name: string } | { name: string }[] | null | undefined;
+type PublicTab = "avulsa" | "fixa" | "minhas" | "info";
 
-const today = new Date().toISOString().slice(0, 10);
-
-const weekDays = [
-  "Domingo",
-  "Segunda",
-  "Terça",
-  "Quarta",
-  "Quinta",
-  "Sexta",
-  "Sábado",
-];
+const weekDays = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const durationLabels: Record<number, string> = {
   30: "30 min",
@@ -173,6 +153,8 @@ const durationLabels: Record<number, string> = {
   150: "2h30",
   180: "3 horas",
 };
+
+const today = new Date().toISOString().slice(0, 10);
 
 export default function PublicArenaPage() {
   const params = useParams();
@@ -216,7 +198,6 @@ export default function PublicArenaPage() {
   const [myWhatsapp, setMyWhatsapp] = useState("");
   const [myBookings, setMyBookings] = useState<Booking[]>([]);
   const [myRecurring, setMyRecurring] = useState<RecurringBooking[]>([]);
-  const [myInvoices, setMyInvoices] = useState<Invoice[]>([]);
   const [searchingMine, setSearchingMine] = useState(false);
   const [myOtpCode, setMyOtpCode] = useState("");
   const [myOtpSent, setMyOtpSent] = useState(false);
@@ -256,24 +237,16 @@ export default function PublicArenaPage() {
 
   const bookingAmount = useMemo(() => {
     if (!selectedPricing) return 0;
-
     const date = new Date(`${bookingDate}T00:00:00`);
     const weekend = date.getDay() === 0 || date.getDay() === 6;
-
-    return Number(
-      weekend && selectedPricing.weekend_price
-        ? selectedPricing.weekend_price
-        : selectedPricing.price
-    );
+    return Number(weekend && selectedPricing.weekend_price ? selectedPricing.weekend_price : selectedPricing.price);
   }, [selectedPricing, bookingDate]);
 
   const depositAmount = useMemo(() => {
     if (!settings?.require_deposit) return 0;
-
     if (settings.deposit_amount_type === "percentage") {
       return bookingAmount * (Number(settings.deposit_percentage || 0) / 100);
     }
-
     return Number(settings.deposit_fixed_amount || 0);
   }, [settings, bookingAmount]);
 
@@ -293,24 +266,15 @@ export default function PublicArenaPage() {
     const open = timeToMinutes(opening.open_time.slice(0, 5));
     const close = timeToMinutes(opening.close_time.slice(0, 5));
     const duration = selectedPricing.duration_minutes;
-
     const times: string[] = [];
 
     for (let current = open; current + duration <= close; current += 30) {
       const start = current;
       const end = current + duration;
 
-      const conflict = hasConflictAt(
-        bookings,
-        recurringBookings,
-        blocks,
-        fieldId,
-        bookingDate,
-        start,
-        end
-      );
-
-      if (!conflict) times.push(minutesToTime(current));
+      if (!hasConflictAt(bookings, recurringBookings, blocks, fieldId, bookingDate, start, end)) {
+        times.push(minutesToTime(current));
+      }
     }
 
     return times;
@@ -352,45 +316,13 @@ export default function PublicArenaPage() {
       blocksRes,
     ] = await Promise.all([
       supabase.from("arena_settings").select("*").eq("arena_id", arenaId).maybeSingle(),
-      supabase
-        .from("arena_gallery")
-        .select("id, image_url, image_order")
-        .eq("arena_id", arenaId)
-        .order("image_order", { ascending: true }),
-      supabase
-        .from("arena_rules")
-        .select("id, rule_text, is_active")
-        .eq("arena_id", arenaId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("arena_opening_hours")
-        .select("weekday, is_open, open_time, close_time")
-        .eq("arena_id", arenaId)
-        .order("weekday", { ascending: true }),
-      supabase
-        .from("fields")
-        .select("id, name, sport, surface, photo_url, status")
-        .eq("arena_id", arenaId)
-        .or("status.is.null,status.eq.active,status.eq.ativo,status.eq.available,status.eq.disponivel")
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("bookings")
-        .select("*, fields(name)")
-        .eq("arena_id", arenaId)
-        .neq("status", "cancelada")
-        .gte("booking_date", today),
-      supabase
-        .from("recurring_bookings")
-        .select("*, fields(name)")
-        .eq("arena_id", arenaId)
-        .in("status", ["active", "pending"]),
-      supabase
-        .from("schedule_blocks")
-        .select("id, field_id, title, block_date, start_time, end_time, status")
-        .eq("arena_id", arenaId)
-        .eq("status", "active")
-        .gte("block_date", today),
+      supabase.from("arena_gallery").select("id, image_url, image_order").eq("arena_id", arenaId).order("image_order", { ascending: true }),
+      supabase.from("arena_rules").select("id, rule_text, is_active").eq("arena_id", arenaId).eq("is_active", true).order("created_at", { ascending: true }),
+      supabase.from("arena_opening_hours").select("weekday, is_open, open_time, close_time").eq("arena_id", arenaId).order("weekday", { ascending: true }),
+      supabase.from("fields").select("id, name, sport, surface, photo_url, status").eq("arena_id", arenaId).or("status.is.null,status.eq.active,status.eq.ativo,status.eq.available,status.eq.disponivel").order("created_at", { ascending: true }),
+      supabase.from("bookings").select("*, fields(name)").eq("arena_id", arenaId).neq("status", "cancelada").gte("booking_date", today),
+      supabase.from("recurring_bookings").select("*, fields(name)").eq("arena_id", arenaId).in("status", ["active", "pending"]),
+      supabase.from("schedule_blocks").select("id, field_id, title, block_date, start_time, end_time, status").eq("arena_id", arenaId).eq("status", "active").gte("block_date", today),
     ]);
 
     const loadedFields = (fieldsRes.data || []) as Field[];
@@ -408,10 +340,7 @@ export default function PublicArenaPage() {
       const { data: prices } = await supabase
         .from("field_pricing_options")
         .select("*")
-        .in(
-          "field_id",
-          loadedFields.map((field) => field.id)
-        )
+        .in("field_id", loadedFields.map((field) => field.id))
         .eq("is_active", true)
         .order("duration_minutes", { ascending: true });
 
@@ -441,11 +370,11 @@ export default function PublicArenaPage() {
     const { data, error } = await supabase
       .from("customers")
       .insert({
-        arena_id: arena.id,
-        name: customerName.trim(),
-        whatsapp: fullWhatsapp,
-        email: customerEmail.trim() || null,
-      })
+  arena_id: arena.id,
+  name: customerName.trim(),
+  whatsapp: fullWhatsapp,
+  email: customerEmail.trim() || null,
+})
       .select("id, name, whatsapp")
       .single();
 
@@ -461,15 +390,12 @@ export default function PublicArenaPage() {
     event.preventDefault();
 
     if (!arena) return;
-
     if (!fieldId || !selectedPricing || !bookingDate || !bookingTime) {
       return alert("Escolha quadra, duração, data e horário.");
     }
 
     if (!customerName.trim()) return alert("Informe seu nome.");
-    if (customerWhatsapp.replace(/\D/g, "").length < 10) {
-      return alert("Informe um WhatsApp válido.");
-    }
+    if (customerWhatsapp.replace(/\D/g, "").length < 10) return alert("Informe um WhatsApp válido.");
 
     const start = timeToMinutes(bookingTime);
     const end = timeToMinutes(bookingEndTime);
@@ -528,15 +454,12 @@ export default function PublicArenaPage() {
     if (!fixedFieldId) return alert("Escolha uma quadra.");
     if (!fixedStartTime || !fixedEndTime) return alert("Informe horário inicial e final.");
     if (!fixedStartDate) return alert("Informe a data de início.");
-
     if (timeToMinutes(fixedEndTime) <= timeToMinutes(fixedStartTime)) {
       return alert("O horário final precisa ser maior que o inicial.");
     }
 
     if (!customerName.trim()) return alert("Informe seu nome.");
-    if (customerWhatsapp.replace(/\D/g, "").length < 10) {
-      return alert("Informe um WhatsApp válido.");
-    }
+    if (customerWhatsapp.replace(/\D/g, "").length < 10) return alert("Informe um WhatsApp válido.");
 
     setSaving(true);
 
@@ -565,8 +488,6 @@ export default function PublicArenaPage() {
       billing_type: "weekly",
       payment_mode: "no_entry",
       monthly_amount: null,
-      payment_status: "pending",
-      paid_amount: 0,
       notes:
         fixedNotes ||
         "Solicitação de reserva fixa enviada pelo link público. A arena precisa aprovar e combinar valores pelo WhatsApp.",
@@ -583,7 +504,6 @@ export default function PublicArenaPage() {
     event.preventDefault();
 
     if (!arena) return;
-
     const clean = myWhatsapp.replace(/\D/g, "");
     if (clean.length < 10) return alert("Digite um WhatsApp válido.");
 
@@ -591,7 +511,7 @@ export default function PublicArenaPage() {
 
     setSearchingMine(true);
 
-    if (!myOtpSent) {
+    if (!myAuthenticated && !myOtpSent) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
@@ -606,16 +526,13 @@ export default function PublicArenaPage() {
 
       if (error) return alert(error.message);
 
-      alert(
-        `Código de acesso: ${code}\n\nMVP: por enquanto o código aparece aqui. Depois enviaremos via WhatsApp automático.`
-      );
-
+      alert(`Código de acesso: ${code}\n\n(temporário em modo MVP; depois enviaremos via WhatsApp automático)`);
       setMyOtpSent(true);
       return;
     }
 
     if (!myAuthenticated) {
-      if (!myOtpCode.trim()) {
+      if (!myOtpCode) {
         setSearchingMine(false);
         return alert("Digite o código recebido.");
       }
@@ -635,32 +552,13 @@ export default function PublicArenaPage() {
         return alert("Código inválido ou expirado.");
       }
 
-      await supabase
-        .from("customer_login_codes")
-        .update({ used_at: new Date().toISOString() })
-        .eq("id", otpRows[0].id);
-
+      await supabase.from("customer_login_codes").update({ used_at: new Date().toISOString() }).eq("id", otpRows[0].id);
       setMyAuthenticated(true);
     }
 
-    const [bookingRes, recurringRes, invoiceRes] = await Promise.all([
-      supabase
-        .from("bookings")
-        .select("*, fields(name)")
-        .eq("arena_id", arena.id)
-        .eq("customer_whatsapp", fullWhatsapp)
-        .order("booking_date", { ascending: false }),
-      supabase
-        .from("recurring_bookings")
-        .select("*, fields(name)")
-        .eq("arena_id", arena.id)
-        .eq("customer_whatsapp", fullWhatsapp)
-        .order("start_date", { ascending: false }),
-      supabase
-        .from("recurring_invoices")
-        .select("*")
-        .eq("arena_id", arena.id)
-        .order("due_date", { ascending: false }),
+    const [bookingRes, recurringRes] = await Promise.all([
+      supabase.from("bookings").select("*, fields(name)").eq("arena_id", arena.id).eq("customer_whatsapp", fullWhatsapp).order("booking_date", { ascending: false }),
+      supabase.from("recurring_bookings").select("*, fields(name)").eq("arena_id", arena.id).eq("customer_whatsapp", fullWhatsapp).order("start_date", { ascending: false }),
     ]);
 
     setSearchingMine(false);
@@ -668,20 +566,8 @@ export default function PublicArenaPage() {
     if (bookingRes.error) return alert(bookingRes.error.message);
     if (recurringRes.error) return alert(recurringRes.error.message);
 
-    const recurring = (recurringRes.data || []) as RecurringBooking[];
-    const customerIds = recurring.map((item) => item.customer_id).filter(Boolean);
-
-    let invoices = (invoiceRes.data || []) as Invoice[];
-
-    if (customerIds.length > 0) {
-      invoices = invoices.filter((invoice) => customerIds.includes(invoice.customer_id));
-    } else {
-      invoices = [];
-    }
-
     setMyBookings((bookingRes.data || []) as Booking[]);
-    setMyRecurring(recurring);
-    setMyInvoices(invoices);
+    setMyRecurring((recurringRes.data || []) as RecurringBooking[]);
   }
 
   function openArenaWhatsapp() {
@@ -732,10 +618,15 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
   }
 
+  function scrollToBooking() {
+    setTab("avulsa");
+    document.getElementById("booking-area")?.scrollIntoView({ behavior: "smooth" });
+  }
+
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#020B0C] text-white">
-        <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 px-6 py-4">
+      <main className="flex min-h-screen items-center justify-center bg-[#07110D] text-white">
+        <div className="flex items-center gap-3 rounded-3xl border border-white/12 bg-white/[0.06] px-6 py-4">
           <Loader2 className="animate-spin text-emerald-400" />
           Carregando arena...
         </div>
@@ -745,8 +636,8 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
 
   if (!arena) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#020B0C] p-5 text-white">
-        <div className="rounded-3xl border border-white/10 bg-[#0F172A] p-10 text-center shadow-2xl">
+      <main className="flex min-h-screen items-center justify-center bg-[#07110D] p-5 text-white">
+        <div className="rounded-3xl border border-white/12 bg-[#101923] p-10 text-center shadow-2xl">
           <h1 className="text-3xl font-black">Arena não encontrada</h1>
           <p className="mt-2 text-slate-300">Verifique se o link está correto.</p>
         </div>
@@ -755,31 +646,28 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
   }
 
   return (
-    <main className="min-h-screen bg-[#020B0C] text-white">
+    <main className="min-h-screen bg-[#07110D] pb-24 text-white md:pb-0">
       <Hero
         arena={arena}
         coverImage={coverImage}
         instagram={socialInstagram}
         facebook={socialFacebook}
         onWhatsapp={openArenaWhatsapp}
-        onReserve={() => {
-          setTab("avulsa");
-          document.getElementById("booking-area")?.scrollIntoView({ behavior: "smooth" });
-        }}
+        onReserve={scrollToBooking}
       />
+
+      <ArenaGalleryShowcase
+        images={gallery}
+        coverImage={coverImage}
+        arenaName={arena.name}
+        onReserve={scrollToBooking}
+      />
+
+      <MobileFloatingActions arena={arena} instagram={socialInstagram} facebook={socialFacebook} onWhatsapp={openArenaWhatsapp} />
 
       <MobileNav tab={tab} setTab={setTab} />
 
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[0.9fr_1.1fr] md:px-8 md:py-12">
-        <aside className="space-y-6">
-          <AboutCard arena={arena} instagram={socialInstagram} facebook={socialFacebook} />
-          <LocationCard arena={arena} />
-          <HoursCard hours={hours} />
-          <RulesCard rules={activeRules} />
-          <GalleryCard images={gallery} />
-          <DepositCard settings={settings} />
-        </aside>
-
+      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1.12fr_0.88fr] md:px-8 md:py-12">
         <div className="space-y-6">
           <DesktopTabs tab={tab} setTab={setTab} />
 
@@ -853,14 +741,12 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
               setWhatsapp={setMyWhatsapp}
               bookings={myBookings}
               recurring={myRecurring}
-              invoices={myInvoices}
               loading={searchingMine}
               onSubmit={loadMyReservations}
               otpCode={myOtpCode}
               setOtpCode={setMyOtpCode}
               otpSent={myOtpSent}
               authenticated={myAuthenticated}
-              arena={arena}
             />
           )}
 
@@ -868,11 +754,22 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
             <InfoPanel arena={arena} rules={activeRules} hours={hours} images={gallery} />
           )}
         </div>
+
+        <aside className="space-y-6">
+          <AboutCard arena={arena} instagram={socialInstagram} facebook={socialFacebook} />
+          <LocationCard arena={arena} />
+          <HoursCard hours={hours} />
+          <RulesCard rules={activeRules} />
+          <GalleryCard images={gallery} />
+          <DepositCard settings={settings} />
+        </aside>
       </section>
 
-      <footer className="border-t border-white/10 px-4 py-10 text-center text-sm text-slate-500">
+      <MobileBottomCTA onReserve={scrollToBooking} onWhatsapp={openArenaWhatsapp} />
+
+      <footer className="border-t border-white/12 px-4 py-10 text-center text-sm text-slate-400">
         <p className="font-black text-white">{arena.name}</p>
-        <p className="mt-2">Agendamento online com ArenaFlow.</p>
+        <p className="mt-2">Reserva online segura com ArenaFlow.</p>
       </footer>
     </main>
   );
@@ -895,148 +792,196 @@ function Hero({
 }) {
   return (
     <section
-      className="relative overflow-hidden border-b border-white/10"
+      className="relative overflow-hidden border-b border-emerald-500/15 bg-[#07110D]"
       style={{
         backgroundImage: coverImage
-          ? `linear-gradient(90deg, rgba(2,11,12,.98) 0%, rgba(2,11,12,.78) 50%, rgba(2,11,12,.35) 100%), url(${coverImage})`
-          : "radial-gradient(circle at top left, rgba(16,185,129,.24), transparent 42%)",
+          ? `linear-gradient(105deg, rgba(3,12,10,.96) 0%, rgba(3,12,10,.82) 46%, rgba(3,12,10,.40) 100%), url(${coverImage})`
+          : "linear-gradient(135deg, #07110D 0%, #0B2B1F 55%, #049669 100%)",
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
-      <div className="mx-auto max-w-7xl px-4 py-7 md:px-8 md:py-10">
+      <div className="mx-auto max-w-7xl px-4 pb-8 pt-5 md:px-8 md:pb-12 md:pt-8">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-white/10 shadow-xl md:h-20 md:w-20">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-white/15 bg-white shadow-xl md:h-20 md:w-20">
               {arena.logo_url ? (
                 <img src={arena.logo_url} alt={arena.name} className="h-full w-full object-cover" />
               ) : (
-                <ShieldCheck className="text-emerald-400" size={32} />
+                <ShieldCheck className="text-emerald-400" size={30} />
               )}
             </div>
 
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-400">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300 md:text-xs">
                 Agendamento online
               </p>
-              <p className="text-lg font-black md:text-2xl">{arena.name}</p>
+              <h1 className="truncate text-2xl font-black md:text-4xl">{arena.name}</h1>
+              {arena.address && (
+                <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-300 md:text-sm">
+                  <MapPin size={14} className="shrink-0 text-emerald-400" />
+                  {arena.address}
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="hidden items-center gap-3 md:flex">
+          <div className="hidden items-center gap-2 md:flex">
             {arena.maps_url && (
-              <a
-                href={arena.maps_url}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 font-black text-white transition hover:border-emerald-400"
-              >
-                Como chegar
+              <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white transition hover:border-emerald-400">
+                <Navigation size={18} />
+                Rota
               </a>
             )}
 
             {instagram && (
-              <a
-                href={instagram}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 font-black text-white transition hover:border-emerald-400"
-              >
-                Instagram
+              <a href={instagram} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white transition hover:border-emerald-400">
+                <InstagramIcon size={18} />
+                Insta
               </a>
             )}
 
-            {facebook && (
-              <a
-                href={facebook}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 font-black text-white transition hover:border-emerald-400"
-              >
-                Facebook
-              </a>
-            )}
-
-            <button
-              type="button"
-              onClick={onWhatsapp}
-              className="rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400"
-            >
+            <button type="button" onClick={onWhatsapp} className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400">
+              <MessageCircle size={18} />
               WhatsApp
             </button>
           </div>
         </div>
 
-        <div className="grid gap-8 py-12 md:grid-cols-[1.05fr_.95fr] md:py-20">
+        <div className="mt-8 grid gap-5 md:mt-12 md:grid-cols-[1.05fr_.95fr] md:items-end">
           <div>
-            <div className="inline-flex rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-black uppercase tracking-widest text-emerald-300">
-              Reserve sem bagunça no WhatsApp
+            <div className="inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/15 px-4 py-2 text-xs font-black uppercase tracking-widest text-emerald-200">
+              Escolha quadra, data e horário
             </div>
 
-            <h1 className="mt-5 max-w-3xl text-5xl font-black tracking-tight md:text-7xl">
-              {arena.name}
-            </h1>
+            <h2 className="mt-4 max-w-3xl text-4xl font-black tracking-tight md:text-6xl">
+              Reserve seu horário em poucos cliques.
+            </h2>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-slate-200">
-              {arena.address && (
-                <span className="flex items-center gap-2">
-                  <MapPin size={18} className="text-emerald-400" />
-                  {arena.address}
-                </span>
-              )}
-
-              <span className="flex items-center gap-1 text-yellow-300">
-                <Star size={18} fill="currentColor" />
-                <Star size={18} fill="currentColor" />
-                <Star size={18} fill="currentColor" />
-                <Star size={18} fill="currentColor" />
-                <Star size={18} fill="currentColor" />
-                <span className="ml-1 text-slate-100">5.0</span>
-              </span>
-            </div>
-
-            <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-200">
+            <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-200 md:text-lg">
               {arena.description ||
-                "Escolha sua quadra, veja horários disponíveis e solicite sua reserva em poucos cliques."}
+                "Veja os horários disponíveis, escolha sua quadra e envie a solicitação direto para a arena."}
             </p>
 
-            <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <HeroFeature icon={<ShieldCheck />} title="Seguro" text="Dados protegidos" />
-              <HeroFeature icon={<CalendarDays />} title="Online" text="Agenda em tempo real" />
-              <HeroFeature icon={<Trophy />} title="Premium" text="Experiência moderna" />
-              <HeroFeature icon={<MessageCircle />} title="WhatsApp" text="Contato rápido" />
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-emerald-500/20 bg-[#07111B]/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
-            <p className="text-sm font-black uppercase tracking-widest text-emerald-400">
-              Sua reserva
-            </p>
-            <h2 className="mt-2 text-3xl font-black">Escolha como quer jogar</h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-300">
-              Faça uma reserva avulsa ou solicite um horário fixo/mensalista diretamente com a arena.
-            </p>
-
-            <div className="mt-6 grid gap-3">
+            <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={onReserve}
-                className="flex items-center justify-between rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400"
+                className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-6 py-4 text-base font-black text-white shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400"
               >
-                Fazer reserva
-                <ChevronRight />
+                Agendar agora
+                <ChevronRight size={20} />
               </button>
 
-              <button
-                type="button"
-                onClick={onWhatsapp}
-                className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-5 py-4 font-black text-white transition hover:border-emerald-400"
-              >
-                <MessageCircle size={18} />
-                Falar com a arena
-              </button>
+              {arena.whatsapp && (
+                <button
+                  type="button"
+                  onClick={onWhatsapp}
+                  className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-5 py-4 font-black text-white transition hover:border-emerald-400"
+                >
+                  <MessageCircle size={18} />
+                  Tirar dúvida
+                </button>
+              )}
+
+              {arena.maps_url && (
+                <a
+                  href={arena.maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-5 py-4 font-black text-white transition hover:border-emerald-400"
+                >
+                  <MapPin size={18} />
+                  Como chegar
+                </a>
+              )}
             </div>
           </div>
+
+          <div className="rounded-[2rem] border border-emerald-500/20 bg-[#0B1411]/90 p-5 shadow-2xl shadow-black/40 backdrop-blur">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-400">Pronto para reservar</p>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <HeroMetric icon={<CalendarDays />} title="1" text="Escolha a data" />
+              <HeroMetric icon={<Clock />} title="2" text="Pegue o horário" />
+              <HeroMetric icon={<CheckCircle2 />} title="3" text="Confirme" />
+            </div>
+            <button
+              type="button"
+              onClick={onReserve}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white transition hover:bg-emerald-400"
+            >
+              Ver horários disponíveis
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroMetric({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.08] p-3">
+      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">{icon}</div>
+      <p className="text-lg font-black text-white">{title}</p>
+      <p className="mt-1 text-[11px] font-bold text-slate-300">{text}</p>
+    </div>
+  );
+}
+
+function ArenaGalleryShowcase({
+  images,
+  coverImage,
+  arenaName,
+  onReserve,
+}: {
+  images: GalleryImage[];
+  coverImage: string;
+  arenaName: string;
+  onReserve: () => void;
+}) {
+  const photos = images.length > 0 ? images : coverImage ? [{ id: "cover", image_url: coverImage, image_order: 0 }] : [];
+
+  if (photos.length === 0) return null;
+
+  return (
+    <section className="border-b border-white/12 bg-[#07110D]">
+      <div className="mx-auto max-w-7xl px-4 py-5 md:px-8 md:py-8">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-400">Fotos da arena</p>
+            <h2 className="mt-1 text-2xl font-black text-white md:text-3xl">Conheça antes de reservar</h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onReserve}
+            className="hidden rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white md:block"
+          >
+            Reservar
+          </button>
+        </div>
+
+        <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-4 md:overflow-visible md:px-0 md:[scrollbar-width:auto] [&::-webkit-scrollbar]:hidden">
+          {photos.slice(0, 8).map((image, index) => (
+            <a
+              key={image.id}
+              href={image.image_url}
+              target="_blank"
+              rel="noreferrer"
+              className={index === 0 ? "group relative h-56 min-w-[82%] overflow-hidden rounded-[2rem] border border-white/12 bg-[#0B1411] md:col-span-2 md:row-span-2 md:h-[390px] md:min-w-0" : "group relative h-56 min-w-[72%] overflow-hidden rounded-[2rem] border border-white/12 bg-[#0B1411] md:h-[188px] md:min-w-0"}
+            >
+              <img src={image.image_url} alt={`${arenaName} - foto ${index + 1}`} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+                <span className="rounded-full bg-black/50 px-3 py-1 text-xs font-black text-white backdrop-blur">
+                  Foto {index + 1}
+                </span>
+                <ExternalLink size={18} className="text-white" />
+              </div>
+            </a>
+          ))}
         </div>
       </div>
     </section>
@@ -1077,15 +1022,26 @@ function BookingPanel(props: {
   const p = props;
 
   return (
-    <section
-      id="booking-area"
-      className="rounded-[2rem] border border-white/10 bg-[#0F172A]/90 p-5 shadow-2xl shadow-black/20 md:p-7"
-    >
-      <PanelHeader
-        eyebrow="Reserva online"
-        title="Escolha seu horário"
-        description="Horários ocupados, fixos e bloqueios são removidos automaticamente."
-      />
+    <section id="booking-area" className="rounded-[2rem] border border-emerald-500/20 bg-[#101923]/95 p-4 shadow-2xl shadow-black/30 md:p-7">
+      <div className="rounded-[1.7rem] border border-emerald-400/20 bg-gradient-to-br from-emerald-500/18 via-[#0B2A20] to-[#0B1411] p-5">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-300">Agendamento online</p>
+            <h2 className="mt-2 text-3xl font-black text-white md:text-4xl">Reserve seu horário</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+              Escolha quadra, duração, data e horário. Depois informe seus dados e envie a solicitação.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/12 bg-black/20 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-300">Resumo</p>
+            <p className="mt-1 text-lg font-black text-white">
+              {p.selectedTime && p.endTime ? `${p.selectedTime} às ${p.endTime}` : "Horário não escolhido"}
+            </p>
+            <p className="text-sm font-black text-emerald-300">R$ {formatMoney(p.amount)}</p>
+          </div>
+        </div>
+      </div>
 
       <ReservationTypeSwitch active="avulsa" setTab={p.setTab} />
 
@@ -1100,22 +1056,20 @@ function BookingPanel(props: {
         />
       ) : (
         <form onSubmit={p.onSubmit} className="mt-6 space-y-6">
-          <div>
-            <Label>Escolha a quadra</Label>
-
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {p.fields.map((field) => (
-                <FieldCard
-                  key={field.id}
-                  field={field}
-                  active={p.selectedFieldId === field.id}
-                  priceText={getMinimumPrice(p.pricingOptions, field.id)}
-                  onClick={() => p.setSelectedFieldId(field.id)}
-                />
-              ))}
-            </div>
+          <StepHeader number="1" title="Escolha a quadra" description="Toque na quadra onde você quer jogar." />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {p.fields.map((field) => (
+              <FieldCard
+                key={field.id}
+                field={field}
+                active={p.selectedFieldId === field.id}
+                priceText={getMinimumPrice(p.pricingOptions, field.id)}
+                onClick={() => p.setSelectedFieldId(field.id)}
+              />
+            ))}
           </div>
 
+          <StepHeader number="2" title="Escolha duração e data" description="O sistema mostra apenas horários disponíveis." />
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <Label>Duração</Label>
@@ -1125,9 +1079,7 @@ function BookingPanel(props: {
                   .filter((option) => option.field_id === p.selectedFieldId)
                   .map((option) => (
                     <option key={option.id} value={option.id}>
-                      {durationLabels[option.duration_minutes] ||
-                        `${option.duration_minutes} min`}{" "}
-                      - R$ {formatMoney(option.price)}
+                      {durationLabels[option.duration_minutes] || `${option.duration_minutes} min`} - R$ {formatMoney(option.price)}
                     </option>
                   ))}
               </SelectBox>
@@ -1139,24 +1091,19 @@ function BookingPanel(props: {
             </div>
 
             <div>
-              <Label>Resumo</Label>
+              <Label>Valor</Label>
               <div className="mt-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                <p className="text-sm text-slate-300">
-                  {p.selectedTime && p.endTime
-                    ? `${p.selectedTime} às ${p.endTime}`
-                    : "Escolha um horário"}
-                </p>
-                <p className="mt-1 text-xl font-black text-white">R$ {formatMoney(p.amount)}</p>
+                <p className="text-sm text-slate-300">{p.selectedField?.name || "Escolha a quadra"}</p>
+                <p className="mt-1 text-2xl font-black text-white">R$ {formatMoney(p.amount)}</p>
               </div>
             </div>
           </div>
 
+          <StepHeader number="3" title="Escolha o horário" description="Horários ocupados, fixos e bloqueios não aparecem." />
           <div>
-            <Label>Horários disponíveis</Label>
-
-            <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
               {p.availableTimes.length === 0 && (
-                <div className="col-span-full rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">
+                <div className="col-span-full rounded-2xl border border-dashed border-white/12 p-6 text-center text-sm text-slate-300">
                   Nenhum horário disponível para essa combinação.
                 </div>
               )}
@@ -1168,8 +1115,8 @@ function BookingPanel(props: {
                   onClick={() => p.setSelectedTime(time)}
                   className={
                     p.selectedTime === time
-                      ? "rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black"
-                      : "rounded-2xl border border-white/10 bg-[#07111B] px-4 py-3 font-bold text-white transition hover:border-emerald-400"
+                      ? "rounded-2xl bg-emerald-500 px-4 py-4 text-base font-black text-white shadow-lg shadow-emerald-500/20"
+                      : "rounded-2xl border border-white/12 bg-[#0B1411] px-4 py-4 text-base font-black text-white transition hover:border-emerald-400 hover:bg-emerald-500/10"
                   }
                 >
                   {time}
@@ -1178,6 +1125,7 @@ function BookingPanel(props: {
             </div>
           </div>
 
+          <StepHeader number="4" title="Seus dados" description="A arena usa seus dados para confirmar a reserva pelo WhatsApp." />
           <CustomerFields
             name={p.customerName}
             setName={p.setCustomerName}
@@ -1193,24 +1141,36 @@ function BookingPanel(props: {
                 <LockKeyhole className="mt-1 text-yellow-300" />
                 <div>
                   <h3 className="font-black text-yellow-100">Sinal obrigatório</h3>
-                  <p className="mt-1 text-sm text-yellow-100/80">
-                    Após solicitar a reserva, envie o comprovante no WhatsApp para confirmação.
-                  </p>
-                  <p className="mt-2 text-2xl font-black text-white">
-                    Sinal: R$ {formatMoney(p.depositAmount)}
-                  </p>
+                  <p className="mt-1 text-sm text-yellow-100/80">Após solicitar a reserva, envie o comprovante no WhatsApp para confirmação.</p>
+                  <p className="mt-2 text-2xl font-black text-white">Sinal: R$ {formatMoney(p.depositAmount)}</p>
                 </div>
               </div>
             </div>
           )}
 
-          <PrimaryButton disabled={p.saving}>
-            {p.saving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
-            {p.saving ? "Solicitando..." : "Solicitar reserva"}
-          </PrimaryButton>
+          <div className="sticky bottom-20 z-20 rounded-[1.7rem] border border-white/12 bg-[#07110D]/95 p-3 backdrop-blur md:static md:bg-transparent md:p-0">
+            <PrimaryButton disabled={p.saving}>
+              {p.saving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+              {p.saving ? "Solicitando..." : "Solicitar reserva"}
+            </PrimaryButton>
+          </div>
         </form>
       )}
     </section>
+  );
+}
+
+function StepHeader({ number, title, description }: { number: string; title: string; description: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-sm font-black text-white">
+        {number}
+      </span>
+      <div>
+        <h3 className="text-lg font-black text-white">{title}</h3>
+        <p className="mt-1 text-sm text-slate-300">{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -1241,7 +1201,7 @@ function FixedPanel(props: {
   const p = props;
 
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0F172A]/90 p-5 shadow-2xl shadow-black/20 md:p-7">
+    <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-2xl shadow-black/20 md:p-7">
       <PanelHeader
         eyebrow="Reserva fixa"
         title="Solicitar horário recorrente"
@@ -1253,23 +1213,16 @@ function FixedPanel(props: {
       {p.created ? (
         <div className="mt-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-6">
           <div className="flex items-start gap-3">
-            <div className="rounded-2xl bg-emerald-500 p-3 text-black">
+            <div className="rounded-2xl bg-emerald-500 p-3 text-white">
               <CheckCircle2 />
             </div>
-
             <div>
               <h3 className="text-2xl font-black">Solicitação enviada!</h3>
-              <p className="mt-2 text-slate-200">
-                A arena vai confirmar sua reserva fixa, valor mensal, vencimento e forma de pagamento pelo WhatsApp.
-              </p>
+              <p className="mt-2 text-slate-200">A arena vai confirmar sua reserva fixa, valor mensal, vencimento e forma de pagamento pelo WhatsApp.</p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={p.onWhatsapp}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black"
-          >
+          <button type="button" onClick={p.onWhatsapp} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white">
             <MessageCircle />
             Falar com a arena
           </button>
@@ -1331,7 +1284,7 @@ function FixedPanel(props: {
                 value={p.notes}
                 onChange={(event) => p.setNotes(event.target.value)}
                 placeholder="Ex: quero fechar mensal, toda terça, posso pagar dia 15..."
-                className="mt-2 min-h-28 w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none focus:border-emerald-400"
+                className="mt-2 min-h-28 w-full rounded-2xl border border-white/12 bg-[#0B1411] p-4 text-white outline-none focus:border-emerald-400"
               />
             </div>
           </div>
@@ -1351,149 +1304,94 @@ function MyReservationsPanel({
   setWhatsapp,
   bookings,
   recurring,
-  invoices,
   loading,
   onSubmit,
   otpCode,
   setOtpCode,
   otpSent,
   authenticated,
-  arena,
 }: {
   whatsapp: string;
   setWhatsapp: (value: string) => void;
   bookings: Booking[];
   recurring: RecurringBooking[];
-  invoices: Invoice[];
   loading: boolean;
   onSubmit: (event: React.FormEvent) => void;
   otpCode: string;
   setOtpCode: (value: string) => void;
   otpSent: boolean;
   authenticated: boolean;
-  arena: Arena;
 }) {
-  function openWhatsapp() {
-    if (!arena.whatsapp) return;
-    window.open(`https://wa.me/${arena.whatsapp}`, "_blank");
-  }
-
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0F172A]/90 p-5 shadow-2xl shadow-black/20 md:p-7">
+    <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-2xl shadow-black/20 md:p-7">
       <PanelHeader
         eyebrow="Área do cliente"
         title="Minhas reservas"
-        description="Entre com seu WhatsApp para consultar reservas, fixas, mensalidades e pendências."
+        description="Digite seu WhatsApp para consultar reservas avulsas, fixas e mensalistas."
       />
 
-      <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-white/10 bg-[#07111B] p-5">
+      <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-white/12 bg-[#0B1411] p-5">
         <Label>WhatsApp</Label>
-
-        <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/10 bg-[#0F172A] focus-within:border-emerald-400">
-          <span className="flex items-center border-r border-white/10 px-4 font-black text-emerald-400">
-            +55
-          </span>
-
+        <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/12 bg-[#101923] focus-within:border-emerald-400">
+          <span className="flex items-center border-r border-white/12 px-4 font-black text-emerald-400">+55</span>
           <input
             value={whatsapp}
             onChange={(event) => setWhatsapp(event.target.value.replace(/\D/g, "").replace(/^55/, ""))}
             placeholder="DDD + número"
-            disabled={authenticated}
-            className="w-full bg-transparent p-4 text-white outline-none disabled:opacity-60"
+            className="w-full bg-transparent p-4 text-white outline-none"
           />
         </div>
 
         {otpSent && !authenticated && (
           <div className="mt-4">
             <Label>Código de acesso</Label>
-
             <input
               value={otpCode}
               onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
               placeholder="Digite o código"
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0F172A] p-4 text-white outline-none focus:border-emerald-400"
+              className="mt-2 w-full rounded-2xl border border-white/12 bg-[#101923] p-4 text-white outline-none"
             />
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black disabled:opacity-60"
-        >
-          {loading ? "Carregando..." : authenticated ? "Atualizar minhas reservas" : otpSent ? "Entrar" : "Receber código"}
+        <button disabled={loading} className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white disabled:opacity-60">
+          {loading ? "..." : otpSent && !authenticated ? "Entrar" : "Receber código"}
         </button>
       </form>
 
-      {!authenticated && (
-        <div className="mt-6 rounded-3xl border border-dashed border-white/10 p-8 text-center text-slate-400">
-          Suas reservas aparecerão aqui depois do login.
-        </div>
-      )}
-
-      {authenticated && (
-        <div className="mt-6 space-y-6">
-          <div>
-            <h3 className="mb-3 text-xl font-black text-white">Cobranças / Mensalidades</h3>
-
-            {invoices.length === 0 && (
-              <EmptyMini text="Nenhuma cobrança encontrada." />
-            )}
-
-            <div className="space-y-3">
-              {invoices.map((invoice) => (
-                <InvoiceCard key={invoice.id} invoice={invoice} onWhatsapp={openWhatsapp} />
-              ))}
-            </div>
+      <div className="mt-6 space-y-3">
+        {bookings.length === 0 && recurring.length === 0 && (
+          <div className="rounded-3xl border border-dashed border-white/12 p-8 text-center text-slate-300">
+            Suas reservas aparecerão aqui após buscar pelo WhatsApp.
           </div>
+        )}
 
-          <div>
-            <h3 className="mb-3 text-xl font-black text-white">Reservas fixas / mensalistas</h3>
+        {recurring.map((item) => (
+          <ReservationCard
+            key={item.id}
+            title="Reserva fixa / mensalista"
+            name={item.customer_name}
+            field={getFieldName(item.fields)}
+            date={getWeekdayLabel(item.weekday)}
+            time={`${item.start_time.slice(0, 5)} às ${item.end_time.slice(0, 5)}`}
+            amount={item.monthly_amount || 0}
+            status={item.payment_status || item.status}
+          />
+        ))}
 
-            {recurring.length === 0 && (
-              <EmptyMini text="Nenhuma reserva fixa encontrada." />
-            )}
-
-            <div className="space-y-3">
-              {recurring.map((item) => (
-                <ReservationCard
-                  key={item.id}
-                  title="Reserva fixa / mensalista"
-                  name={item.customer_name}
-                  field={getFieldName(item.fields)}
-                  date={getWeekdayLabel(item.weekday)}
-                  time={`${item.start_time.slice(0, 5)} às ${item.end_time.slice(0, 5)}`}
-                  amount={item.monthly_amount || 0}
-                  status={item.payment_status || item.status}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="mb-3 text-xl font-black text-white">Reservas avulsas</h3>
-
-            {bookings.length === 0 && (
-              <EmptyMini text="Nenhuma reserva avulsa encontrada." />
-            )}
-
-            <div className="space-y-3">
-              {bookings.map((item) => (
-                <ReservationCard
-                  key={item.id}
-                  title="Reserva avulsa"
-                  name={item.customer_name}
-                  field={getFieldName(item.fields)}
-                  date={formatDate(item.booking_date)}
-                  time={`${item.start_time.slice(0, 5)} às ${item.end_time.slice(0, 5)}`}
-                  amount={item.amount}
-                  status={item.status}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+        {bookings.map((item) => (
+          <ReservationCard
+            key={item.id}
+            title="Reserva avulsa"
+            name={item.customer_name}
+            field={getFieldName(item.fields)}
+            date={formatDate(item.booking_date)}
+            time={`${item.start_time.slice(0, 5)} às ${item.end_time.slice(0, 5)}`}
+            amount={item.amount}
+            status={item.status}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -1510,7 +1408,7 @@ function InfoPanel({
   images: GalleryImage[];
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0F172A]/90 p-5 md:p-7">
+    <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 md:p-7">
       <PanelHeader
         eyebrow="Informações"
         title="Conheça a arena"
@@ -1518,11 +1416,7 @@ function InfoPanel({
       />
 
       <div className="mt-6 grid gap-6">
-        <AboutCard
-          arena={arena}
-          instagram={arena.instagram ? normalizeSocialUrl(arena.instagram, "instagram") : ""}
-          facebook={arena.facebook ? normalizeSocialUrl(arena.facebook, "facebook") : ""}
-        />
+        <AboutCard arena={arena} instagram={arena.instagram ? normalizeSocialUrl(arena.instagram, "instagram") : ""} facebook={arena.facebook ? normalizeSocialUrl(arena.facebook, "facebook") : ""} />
         <LocationCard arena={arena} />
         <HoursCard hours={hours} />
         <RulesCard rules={rules} />
@@ -1532,48 +1426,49 @@ function InfoPanel({
   );
 }
 
-function AboutCard({
-  arena,
-  instagram,
-  facebook,
-}: {
-  arena: Arena;
-  instagram: string;
-  facebook: string;
-}) {
+function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: string; facebook: string }) {
   return (
-    <Card title="Sobre a arena" icon={<MapPin />}>
+    <Card title="Contato e informações" icon={<MessageCircle />}>
       <div className="space-y-4 text-sm text-slate-300">
         {arena.description && (
-          <p className="rounded-2xl border border-white/10 bg-white/5 p-4 leading-relaxed text-slate-200">
+          <p className="rounded-2xl border border-white/12 bg-white/[0.06] p-4 leading-relaxed text-slate-200">
             {arena.description}
           </p>
         )}
 
-        {arena.address && <InfoLine icon={<MapPin />} text={arena.address} />}
-        {arena.phone && <InfoLine icon={<Phone />} text={arena.phone} />}
-        {arena.whatsapp && <InfoLine icon={<MessageCircle />} text={`+${arena.whatsapp}`} />}
+        <div className="grid gap-3">
+          {arena.whatsapp && (
+            <button
+              type="button"
+              onClick={() => window.open(`https://wa.me/${arena.whatsapp}`, "_blank")}
+              className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-left transition hover:border-emerald-400"
+            >
+              <span className="flex items-center gap-3">
+                <span className="rounded-xl bg-emerald-500 p-2 text-black"><MessageCircle size={18} /></span>
+                <span>
+                  <span className="block font-black text-white">WhatsApp da arena</span>
+                  <span className="text-xs text-slate-300">+{arena.whatsapp}</span>
+                </span>
+              </span>
+              <ExternalLink size={18} className="text-emerald-300" />
+            </button>
+          )}
 
-        <div className="flex flex-wrap gap-2 pt-2">
           {instagram && (
             <a
               href={instagram}
               target="_blank"
               rel="noreferrer"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 font-bold text-emerald-300 transition hover:border-emerald-400"
+              className="flex items-center justify-between rounded-2xl border border-white/12 bg-white/[0.06] p-4 transition hover:border-emerald-400"
             >
-              Instagram
-            </a>
-          )}
-
-          {facebook && (
-            <a
-              href={facebook}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 font-bold text-emerald-300 transition hover:border-emerald-400"
-            >
-              Facebook
+              <span className="flex items-center gap-3">
+                <span className="rounded-xl bg-white/[0.10] p-2 text-emerald-300"><InstagramIcon size={18} /></span>
+                <span>
+                  <span className="block font-black text-white">Instagram</span>
+                  <span className="text-xs text-slate-300">Ver fotos, novidades e bastidores</span>
+                </span>
+              </span>
+              <ExternalLink size={18} className="text-slate-300" />
             </a>
           )}
 
@@ -1582,12 +1477,22 @@ function AboutCard({
               href={arena.maps_url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-xl bg-emerald-500 px-4 py-2 font-black text-black transition hover:bg-emerald-400"
+              className="flex items-center justify-between rounded-2xl border border-white/12 bg-white/[0.06] p-4 transition hover:border-emerald-400"
             >
-              Como chegar
+              <span className="flex items-center gap-3">
+                <span className="rounded-xl bg-white/[0.10] p-2 text-emerald-300"><MapPin size={18} /></span>
+                <span>
+                  <span className="block font-black text-white">Localização</span>
+                  <span className="text-xs text-slate-300">{arena.address || "Abrir no Google Maps"}</span>
+                </span>
+              </span>
+              <Navigation size={18} className="text-slate-300" />
             </a>
           )}
         </div>
+
+        {arena.phone && <InfoLine icon={<Phone />} text={arena.phone} />}
+        {facebook && <InfoLine icon={<Globe />} text="Facebook disponível" />}
       </div>
     </Card>
   );
@@ -1599,19 +1504,14 @@ function LocationCard({ arena }: { arena: Arena }) {
   return (
     <Card title="Como chegar" icon={<MapPin />}>
       <div className="space-y-4">
-        <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-emerald-500/20 to-slate-900 p-6 text-center">
+        <div className="rounded-3xl border border-white/12 bg-gradient-to-br from-emerald-500/18 to-slate-900 p-6 text-center">
           <MapPin className="mx-auto text-emerald-300" size={42} />
           <p className="mt-3 font-bold text-white">{arena.address || "Localização da arena"}</p>
-          <p className="mt-1 text-sm text-slate-400">Abra a rota diretamente no Google Maps.</p>
+          <p className="mt-1 text-sm text-slate-300">Abra a rota diretamente no Google Maps.</p>
         </div>
 
         {arena.maps_url && (
-          <a
-            href={arena.maps_url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400"
-          >
+          <a href={arena.maps_url} target="_blank" className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white transition hover:bg-emerald-400">
             <MapPin size={18} />
             Abrir rota no Google Maps
           </a>
@@ -1629,12 +1529,9 @@ function HoursCard({ hours }: { hours: OpeningHour[] }) {
           const hour = hours.find((item) => item.weekday === index);
 
           return (
-            <div
-              key={day}
-              className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3 text-sm"
-            >
+            <div key={day} className="flex items-center justify-between rounded-2xl bg-white/[0.06] px-4 py-3 text-sm">
               <span className="font-bold text-white">{day}</span>
-              <span className={hour?.is_open ? "font-bold text-emerald-300" : "text-slate-500"}>
+              <span className={hour?.is_open ? "font-bold text-emerald-300" : "text-slate-400"}>
                 {hour?.is_open && hour.open_time && hour.close_time
                   ? `${hour.open_time.slice(0, 5)} às ${hour.close_time.slice(0, 5)}`
                   : "Fechado"}
@@ -1667,17 +1564,40 @@ function RulesCard({ rules }: { rules: ArenaRule[] }) {
 function GalleryCard({ images }: { images: GalleryImage[] }) {
   if (images.length === 0) return null;
 
+  const featured = images[0];
+  const rest = images.slice(1, 9);
+
   return (
-    <Card title="Fotos" icon={<ImageIcon />}>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-        {images.slice(0, 9).map((image) => (
+    <Card title="Fotos da arena" icon={<Camera />}>
+      <div className="space-y-3">
+        <a href={featured.image_url} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-3xl border border-white/12 bg-[#0B1411]">
           <img
-            key={image.id}
-            src={image.image_url}
-            alt="Foto da arena"
-            className="h-28 w-full rounded-2xl object-cover"
+            src={featured.image_url}
+            alt="Foto principal da arena"
+            className="h-52 w-full object-cover transition duration-500 group-hover:scale-105 md:h-64"
           />
-        ))}
+          <div className="flex items-center justify-between p-4">
+            <div>
+              <p className="font-black text-white">Conheça a estrutura</p>
+              <p className="text-xs text-slate-300">Toque para abrir a foto maior</p>
+            </div>
+            <ExternalLink size={18} className="text-emerald-300" />
+          </div>
+        </a>
+
+        {rest.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+            {rest.map((image, index) => (
+              <a key={image.id} href={image.image_url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl border border-white/12 bg-[#0B1411]">
+                <img
+                  src={image.image_url}
+                  alt={`Foto da arena ${index + 2}`}
+                  className="h-28 w-full object-cover transition duration-500 group-hover:scale-110"
+                />
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -1692,24 +1612,118 @@ function DepositCard({ settings }: { settings: ArenaSettings | null }) {
         <ShieldCheck className="mt-1 shrink-0 text-yellow-300" />
         <div>
           <h3 className="font-black text-yellow-100">Esta arena exige sinal</h3>
-          <p className="mt-1 text-sm text-yellow-100/80">
-            O valor será calculado na etapa de agendamento.
-          </p>
+          <p className="mt-1 text-sm text-yellow-100/80">O valor será calculado na etapa de agendamento.</p>
         </div>
       </div>
     </div>
   );
 }
 
-function MobileNav({
-  tab,
-  setTab,
+function ContactQuickActions({
+  arena,
+  instagram,
+  facebook,
+  onWhatsapp,
 }: {
-  tab: PublicTab;
-  setTab: (tab: PublicTab) => void;
+  arena: Arena;
+  instagram: string;
+  facebook: string;
+  onWhatsapp: () => void;
 }) {
   return (
-    <div className="sticky top-0 z-30 border-b border-white/10 bg-[#020B0C]/90 backdrop-blur md:hidden">
+    <div className="mt-6 flex flex-wrap gap-3">
+      {arena.whatsapp && (
+        <button
+          type="button"
+          onClick={onWhatsapp}
+          className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black shadow-lg shadow-emerald-500/20"
+        >
+          <MessageCircle size={18} />
+          WhatsApp
+        </button>
+      )}
+
+      {instagram && (
+        <a href={instagram} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
+          <InstagramIcon size={18} />
+          Instagram
+        </a>
+      )}
+
+      {arena.maps_url && (
+        <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
+          <MapPin size={18} />
+          Como chegar
+        </a>
+      )}
+
+      {facebook && (
+        <a href={facebook} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
+          <Globe size={18} />
+          Facebook
+        </a>
+      )}
+    </div>
+  );
+}
+
+function MobileFloatingActions({
+  arena,
+  instagram,
+  facebook,
+  onWhatsapp,
+}: {
+  arena: Arena;
+  instagram: string;
+  facebook: string;
+  onWhatsapp: () => void;
+}) {
+  return (
+    <div className="fixed bottom-24 right-4 z-40 flex flex-col gap-3 md:hidden">
+      {arena.whatsapp && (
+        <button
+          type="button"
+          onClick={onWhatsapp}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-black shadow-2xl shadow-emerald-500/30"
+          aria-label="Falar no WhatsApp"
+        >
+          <MessageCircle size={26} />
+        </button>
+      )}
+
+      {instagram && (
+        <a href={instagram} target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-[#101923] text-emerald-300 shadow-xl" aria-label="Instagram da arena">
+          <InstagramIcon size={22} />
+        </a>
+      )}
+
+      {arena.maps_url && (
+        <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-[#101923] text-emerald-300 shadow-xl" aria-label="Como chegar">
+          <Navigation size={22} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function MobileBottomCTA({ onReserve, onWhatsapp }: { onReserve: () => void; onWhatsapp: () => void }) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-emerald-500/15 bg-[#07110D]/95 p-3 shadow-[0_-8px_30px_rgba(0,0,0,.25)] backdrop-blur md:hidden">
+      <div className="grid grid-cols-[1fr_auto] gap-3">
+        <button type="button" onClick={onReserve} className="rounded-2xl bg-emerald-500 px-4 py-4 font-black text-white shadow-lg shadow-emerald-500/20">
+          Ver horários
+        </button>
+        <button type="button" onClick={onWhatsapp} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.10] text-emerald-300" aria-label="WhatsApp">
+          <MessageCircle size={24} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MobileNav({ tab, setTab }: { tab: PublicTab; setTab: (tab: PublicTab) => void }) {
+  return (
+    <div className="sticky top-0 z-30 border-b border-emerald-500/15 bg-[#07110D]/95 backdrop-blur md:hidden">
       <div className="grid grid-cols-4 px-3 py-2 text-xs font-bold">
         <MobileTab active={tab === "avulsa"} onClick={() => setTab("avulsa")} label="Agendar" />
         <MobileTab active={tab === "fixa"} onClick={() => setTab("fixa")} label="Fixa" />
@@ -1720,13 +1734,7 @@ function MobileNav({
   );
 }
 
-function DesktopTabs({
-  tab,
-  setTab,
-}: {
-  tab: PublicTab;
-  setTab: (tab: PublicTab) => void;
-}) {
+function DesktopTabs({ tab, setTab }: { tab: PublicTab; setTab: (tab: PublicTab) => void }) {
   return (
     <div className="hidden grid-cols-4 gap-3 md:grid">
       <DesktopTab active={tab === "avulsa"} onClick={() => setTab("avulsa")} label="Reserva avulsa" />
@@ -1737,13 +1745,7 @@ function DesktopTabs({
   );
 }
 
-function ReservationTypeSwitch({
-  active,
-  setTab,
-}: {
-  active: "avulsa" | "fixa";
-  setTab: (tab: PublicTab) => void;
-}) {
+function ReservationTypeSwitch({ active, setTab }: { active: "avulsa" | "fixa"; setTab: (tab: PublicTab) => void }) {
   return (
     <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
       <button
@@ -1752,13 +1754,11 @@ function ReservationTypeSwitch({
         className={
           active === "avulsa"
             ? "rounded-2xl border border-emerald-500 bg-emerald-500/10 p-4 text-left"
-            : "rounded-2xl border border-white/10 bg-[#07111B] p-4 text-left transition hover:border-emerald-500"
+            : "rounded-2xl border border-white/12 bg-[#0B1411] p-4 text-left transition hover:border-emerald-500"
         }
       >
-        <p className={active === "avulsa" ? "font-black text-emerald-300" : "font-black text-white"}>
-          Reserva avulsa
-        </p>
-        <p className="mt-1 text-sm text-slate-400">Para reservar um horário específico.</p>
+        <p className={active === "avulsa" ? "font-black text-emerald-300" : "font-black text-white"}>Reserva avulsa</p>
+        <p className="mt-1 text-sm text-slate-300">Para reservar um horário específico.</p>
       </button>
 
       <button
@@ -1767,13 +1767,11 @@ function ReservationTypeSwitch({
         className={
           active === "fixa"
             ? "rounded-2xl border border-emerald-500 bg-emerald-500/10 p-4 text-left"
-            : "rounded-2xl border border-white/10 bg-[#07111B] p-4 text-left transition hover:border-emerald-500"
+            : "rounded-2xl border border-white/12 bg-[#0B1411] p-4 text-left transition hover:border-emerald-500"
         }
       >
-        <p className={active === "fixa" ? "font-black text-emerald-300" : "font-black text-white"}>
-          Reserva fixa / mensalista
-        </p>
-        <p className="mt-1 text-sm text-slate-400">Para jogar toda semana ou fechar mensal.</p>
+        <p className={active === "fixa" ? "font-black text-emerald-300" : "font-black text-white"}>Reserva fixa / mensalista</p>
+        <p className="mt-1 text-sm text-slate-300">Para jogar toda semana ou fechar mensal.</p>
       </button>
     </div>
   );
@@ -1795,7 +1793,7 @@ function CustomerFields({
   setEmail: (value: string) => void;
 }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#07111B] p-5">
+    <div className="rounded-3xl border border-white/12 bg-[#0B1411] p-5">
       <div className="mb-4 flex items-center gap-2">
         <UserRound className="text-emerald-400" />
         <h3 className="text-xl font-black">Seus dados</h3>
@@ -1845,15 +1843,14 @@ function SuccessPanel({
   return (
     <div className="mt-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-6">
       <div className="flex items-start gap-3">
-        <div className="rounded-2xl bg-emerald-500 p-3 text-black">
+        <div className="rounded-2xl bg-emerald-500 p-3 text-white">
           <CheckCircle2 />
         </div>
 
         <div>
           <h3 className="text-2xl font-black">Reserva solicitada!</h3>
           <p className="mt-2 text-slate-200">
-            {getFieldName(booking.fields)} • {formatDate(booking.booking_date)} •{" "}
-            {booking.start_time.slice(0, 5)} às {booking.end_time.slice(0, 5)}
+            {getFieldName(booking.fields)} • {formatDate(booking.booking_date)} • {booking.start_time.slice(0, 5)} às {booking.end_time.slice(0, 5)}
           </p>
           <p className="mt-1 font-black text-white">R$ {formatMoney(booking.amount)}</p>
         </div>
@@ -1865,11 +1862,7 @@ function SuccessPanel({
           <p className="mt-2 text-2xl font-black text-white">R$ {formatMoney(depositAmount)}</p>
 
           {pixKey && (
-            <button
-              type="button"
-              onClick={copyPix}
-              className="mt-3 flex items-center gap-2 rounded-xl border border-yellow-300/30 px-4 py-3 font-bold text-yellow-100"
-            >
+            <button type="button" onClick={copyPix} className="mt-3 flex items-center gap-2 rounded-xl border border-yellow-300/30 px-4 py-3 font-bold text-yellow-100">
               <Copy size={16} />
               Copiar chave Pix
             </button>
@@ -1878,19 +1871,11 @@ function SuccessPanel({
       )}
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
-        <button
-          type="button"
-          onClick={onWhatsapp}
-          className="rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black"
-        >
+        <button type="button" onClick={onWhatsapp} className="rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white">
           Ir para WhatsApp
         </button>
 
-        <button
-          type="button"
-          onClick={onNew}
-          className="rounded-2xl border border-white/10 px-5 py-4 font-black text-white"
-        >
+        <button type="button" onClick={onNew} className="rounded-2xl border border-white/12 px-5 py-4 font-black text-white">
           Fazer outra reserva
         </button>
       </div>
@@ -1916,7 +1901,7 @@ function FieldCard({
       className={
         active
           ? "overflow-hidden rounded-3xl border border-emerald-400 bg-emerald-500/10 text-left shadow-lg shadow-emerald-500/10"
-          : "overflow-hidden rounded-3xl border border-white/10 bg-[#07111B] text-left transition hover:border-emerald-500/50"
+          : "overflow-hidden rounded-3xl border border-white/12 bg-[#0B1411] text-left transition hover:border-emerald-500/50"
       }
     >
       <div className="h-32 bg-slate-900">
@@ -1931,7 +1916,7 @@ function FieldCard({
 
       <div className="p-4">
         <p className="font-black text-white">{field.name}</p>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-sm text-slate-300">
           {field.sport || "Quadra"} {field.surface ? `• ${field.surface}` : ""}
         </p>
         <p className="mt-2 text-sm font-black text-emerald-300">{priceText}</p>
@@ -1958,121 +1943,48 @@ function ReservationCard({
   status: string;
 }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#07111B] p-5">
+    <div className="rounded-3xl border border-white/12 bg-[#0B1411] p-5">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <p className="text-xs font-black uppercase tracking-widest text-emerald-400">{title}</p>
           <h3 className="mt-1 text-xl font-black text-white">{name}</h3>
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-slate-300">
             {field} • {date} • {time}
           </p>
         </div>
 
         <div className="text-left md:text-right">
-          <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">
-            {translateStatus(status)}
-          </span>
-
-          {amount > 0 && (
-            <p className="mt-2 text-xl font-black text-white">R$ {formatMoney(amount)}</p>
-          )}
+          <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">{translateStatus(status)}</span>
+          <p className="mt-2 text-xl font-black text-white">R$ {formatMoney(amount)}</p>
         </div>
       </div>
     </div>
   );
 }
 
-function InvoiceCard({ invoice, onWhatsapp }: { invoice: Invoice; onWhatsapp: () => void }) {
-  const pending = Number(invoice.amount || 0) - Number(invoice.paid_amount || 0);
-
-  return (
-    <div className="rounded-3xl border border-white/10 bg-[#07111B] p-5">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-400">
-            Mensalidade
-          </p>
-          <h3 className="mt-1 text-xl font-black text-white">{invoice.customer_name}</h3>
-          <p className="mt-2 text-sm text-slate-400">
-            Vence em {formatDate(invoice.due_date)} • {invoice.description || "Cobrança mensal"}
-          </p>
-
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">
-              {translateStatus(invoice.status)}
-            </span>
-
-            {pending > 0 && (
-              <span className="rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-300">
-                Pendente R$ {formatMoney(pending)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2 text-left md:text-right">
-          <p className="text-2xl font-black text-white">R$ {formatMoney(invoice.amount)}</p>
-
-          <button
-            type="button"
-            onClick={onWhatsapp}
-            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-black"
-          >
-            Falar com a arena
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyMini({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">
-      {text}
-    </div>
-  );
-}
-
-function PanelHeader({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-}) {
+function PanelHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return (
     <div>
       <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-400">{eyebrow}</p>
       <h2 className="mt-2 text-3xl font-black">{title}</h2>
-      <p className="mt-2 text-sm text-slate-400">{description}</p>
+      <p className="mt-2 text-sm text-slate-300">{description}</p>
     </div>
   );
 }
 
 function HeroFeature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+    <div className="rounded-3xl border border-white/12 bg-white/[0.06] p-4 backdrop-blur">
       <div className="mb-3 text-emerald-400">{icon}</div>
       <p className="font-black">{title}</p>
-      <p className="text-xs text-slate-400">{text}</p>
+      <p className="text-xs text-slate-300">{text}</p>
     </div>
   );
 }
 
-function Card({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Card({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0F172A]/90 p-5 shadow-xl shadow-black/10">
+    <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-xl shadow-black/10">
       <h2 className="mb-4 flex items-center gap-2 text-xl font-black">
         <span className="text-emerald-400">{icon}</span>
         {title}
@@ -2091,43 +2003,23 @@ function InfoLine({ icon, text }: { icon: React.ReactNode; text: string }) {
   );
 }
 
-function MobileTab({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
+function MobileTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={active ? "rounded-xl bg-emerald-500 py-3 font-black text-black" : "py-3 text-slate-300"}
-    >
+    <button type="button" onClick={onClick} className={active ? "rounded-xl bg-emerald-500 py-3 font-black text-black" : "py-3 text-slate-300"}>
       {label}
     </button>
   );
 }
 
-function DesktopTab({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
+function DesktopTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={
         active
-          ? "rounded-2xl bg-emerald-500 px-4 py-4 font-black text-black"
-          : "rounded-2xl border border-white/10 bg-[#0F172A] px-4 py-4 font-bold text-slate-300 transition hover:border-emerald-500/40"
+          ? "rounded-2xl bg-emerald-500 px-4 py-4 font-black text-white"
+          : "rounded-2xl border border-white/12 bg-[#101923] px-4 py-4 font-bold text-slate-300 transition hover:border-emerald-500/40"
       }
     >
       {label}
@@ -2159,24 +2051,15 @@ function InputBox({
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
-      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none focus:border-emerald-400"
+      className="mt-2 w-full rounded-2xl border border-white/12 bg-[#0B1411] p-4 text-white outline-none focus:border-emerald-400"
     />
   );
 }
 
-function WhatsappInput({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
+function WhatsappInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/10 bg-[#07111B] focus-within:border-emerald-400">
-      <span className="flex items-center border-r border-white/10 px-4 font-black text-emerald-400">
-        +55
-      </span>
-
+    <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/12 bg-[#0B1411] focus-within:border-emerald-400">
+      <span className="flex items-center border-r border-white/12 px-4 font-black text-emerald-400">+55</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value.replace(/\D/g, "").replace(/^55/, ""))}
@@ -2200,7 +2083,7 @@ function SelectBox({
     <select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#07111B] p-4 text-white outline-none focus:border-emerald-400"
+      className="mt-2 w-full rounded-2xl border border-white/12 bg-[#0B1411] p-4 text-white outline-none focus:border-emerald-400"
     >
       {children}
     </select>
@@ -2210,7 +2093,6 @@ function SelectBox({
 function PrimaryButton({ disabled, children }: { disabled: boolean; children: React.ReactNode }) {
   return (
     <button
-      type="submit"
       disabled={disabled}
       className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-6 py-5 text-lg font-black text-black shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:opacity-60"
     >
@@ -2219,13 +2101,36 @@ function PrimaryButton({ disabled, children }: { disabled: boolean; children: Re
   );
 }
 
+function InstagramIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect
+        x="3"
+        y="3"
+        width="18"
+        height="18"
+        rx="5"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+      <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
 function getMinimumPrice(prices: PricingOption[], fieldId: string) {
   const fieldPrices = prices.filter((price) => price.field_id === fieldId && price.is_active);
-
   if (!fieldPrices.length) return "Preço sob consulta";
 
   const min = Math.min(...fieldPrices.map((price) => Number(price.price || 0)));
-
   return `A partir de R$ ${formatMoney(min)}`;
 }
 
@@ -2272,7 +2177,6 @@ function getRecurringBookingsForDate(bookings: RecurringBooking[], date: string,
   return bookings.filter(
     (booking) =>
       (!fieldId || booking.field_id === fieldId) &&
-      booking.status === "active" &&
       booking.weekday === weekday &&
       date >= booking.start_date &&
       (!booking.end_date || date <= booking.end_date)
@@ -2309,7 +2213,6 @@ function normalizeSocialUrl(value: string, type: "instagram" | "facebook") {
   const clean = value.replace("@", "").replace(/^\/+/, "");
 
   if (type === "instagram") return `https://instagram.com/${clean}`;
-
   return `https://facebook.com/${clean}`;
 }
 
@@ -2324,9 +2227,6 @@ function translateStatus(status: string) {
     pending: "Pendente",
     paid: "Pago",
     partial: "Parcial",
-    overdue: "Atrasado",
-    rejected: "Recusado",
-    approved: "Aprovado",
   };
 
   return labels[status] || status;
@@ -2337,7 +2237,6 @@ function formatMoney(value: string | number) {
 }
 
 function formatDate(date: string) {
-  if (!date) return "";
   const [year, month, day] = date.split("-");
   return `${day}/${month}/${year}`;
 }

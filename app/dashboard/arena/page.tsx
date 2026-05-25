@@ -483,24 +483,26 @@ export default function ArenaPage() {
       return;
     }
 
-    const { error: hoursError } = await supabase
-  .from("arena_opening_hours")
-  .upsert(
-    openingHours.map((hour) => ({
-      arena_id: activeArenaId,
-      weekday: hour.weekday,
-      is_open: hour.is_open,
-      open_time: hour.is_open ? hour.open_time : null,
-      close_time: hour.is_open ? hour.close_time : null,
-    })),
-    { onConflict: "arena_id,weekday" }
-  );
-
-if (hoursError) {
-  setSaving(false);
-  alert(hoursError.message);
-  return;
-}
+    for (const hour of openingHours) {
+      if (hour.id) {
+        await supabase
+          .from("arena_opening_hours")
+          .update({
+            is_open: hour.is_open,
+            open_time: hour.is_open ? hour.open_time : null,
+            close_time: hour.is_open ? hour.close_time : null,
+          })
+          .eq("id", hour.id);
+      } else {
+        await supabase.from("arena_opening_hours").insert({
+          arena_id: activeArenaId,
+          weekday: hour.weekday,
+          is_open: hour.is_open,
+          open_time: hour.is_open ? hour.open_time : null,
+          close_time: hour.is_open ? hour.close_time : null,
+        });
+      }
+    }
 
     for (const rule of rules) {
       await supabase
@@ -595,34 +597,48 @@ if (hoursError) {
   }
 
   if (loading) {
-    return <p className="text-white">Carregando configurações...</p>;
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-[#F5F7FB] text-slate-950">
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold shadow-sm">
+          Carregando configurações...
+        </div>
+      </div>
+    );
   }
 
   return (
-    <form onSubmit={handleSave} className="mx-auto max-w-[1500px] space-y-8">
-      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-        <div>
-          <p className="text-sm font-semibold text-[#22C55E]">
-            Configuração pública
-          </p>
-          <h1 className="mt-1 text-4xl font-black tracking-tight text-white">
-            {tabTitles[activeTab].title}
-          </h1>
-          <p className="mt-2 max-w-2xl text-slate-400">
-            {tabTitles[activeTab].description}
-          </p>
+    <form onSubmit={handleSave} className="mx-auto max-w-[1640px] space-y-5 bg-[#F5F7FB] text-slate-950">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-slate-950" />
+
+        <div className="flex flex-col justify-between gap-5 px-5 py-5 md:px-6 lg:flex-row lg:items-center">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+              Minha Arena
+            </div>
+
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
+              {tabTitles[activeTab].title}
+            </h1>
+
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+              {tabTitles[activeTab].description}
+            </p>
+          </div>
+
+          <button
+            disabled={saving}
+            className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Save size={18} />
+            {saving ? "Salvando..." : "Salvar alterações"}
+          </button>
         </div>
+      </section>
 
-        <button
-          disabled={saving}
-          className="flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#16A34A] to-[#22C55E] px-5 py-3 font-bold text-black shadow-lg shadow-emerald-500/20 transition hover:opacity-90 disabled:opacity-60"
-        >
-          <Save size={18} />
-          {saving ? "Salvando..." : "Salvar alterações"}
-        </button>
-      </div>
-
-      {renderActiveSection()}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        {renderActiveSection()}
+      </section>
     </form>
   );
 }
