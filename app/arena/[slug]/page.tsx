@@ -1,5 +1,5 @@
 "use client";
-
+ 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
   ImageIcon,
   Loader2,
   LockKeyhole,
+  LogOut,
   MapPin,
   MessageCircle,
   Phone,
@@ -22,9 +23,10 @@ import {
   Star,
   Trophy,
   UserRound,
+  X,
 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
-
+ 
 type Arena = {
   id: string;
   name: string;
@@ -39,7 +41,7 @@ type Arena = {
   logo_url: string | null;
   cover_url: string | null;
 };
-
+ 
 type ArenaSettings = {
   require_deposit: boolean | null;
   deposit_amount_type: "fixed" | "percentage" | null;
@@ -51,26 +53,26 @@ type ArenaSettings = {
   receipt_whatsapp: string | null;
   deposit_message: string | null;
 };
-
+ 
 type GalleryImage = {
   id: string;
   image_url: string;
   image_order: number;
 };
-
+ 
 type ArenaRule = {
   id: string;
   rule_text: string;
   is_active: boolean;
 };
-
+ 
 type OpeningHour = {
   weekday: number;
   is_open: boolean;
   open_time: string | null;
   close_time: string | null;
 };
-
+ 
 type Field = {
   id: string;
   name: string;
@@ -79,7 +81,7 @@ type Field = {
   photo_url: string | null;
   status: string;
 };
-
+ 
 type PricingOption = {
   id: string;
   field_id: string;
@@ -88,7 +90,7 @@ type PricingOption = {
   weekend_price: number | null;
   is_active: boolean;
 };
-
+ 
 type Booking = {
   id: string;
   arena_id: string;
@@ -104,7 +106,7 @@ type Booking = {
   notes: string | null;
   fields?: FieldRelation;
 };
-
+ 
 type RecurringBooking = {
   id: string;
   field_id: string;
@@ -123,7 +125,7 @@ type RecurringBooking = {
   next_due_date: string | null;
   fields?: FieldRelation;
 };
-
+ 
 type ScheduleBlock = {
   id: string;
   field_id: string | null;
@@ -133,18 +135,18 @@ type ScheduleBlock = {
   end_time: string;
   status: string;
 };
-
+ 
 type Customer = {
   id: string;
   name: string;
   whatsapp: string;
 };
-
+ 
 type FieldRelation = { name: string } | { name: string }[] | null | undefined;
-type PublicTab = "avulsa" | "fixa" | "minhas" | "info";
-
+type PublicTab = "avulsa" | "fixa" | "info";
+ 
 const weekDays = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-
+ 
 const durationLabels: Record<number, string> = {
   30: "30 min",
   60: "1 hora",
@@ -152,17 +154,20 @@ const durationLabels: Record<number, string> = {
   120: "2 horas",
   150: "2h30",
   180: "3 horas",
+  210: "3h30",
 };
-
+ 
+const fixedDurationOptions = [60, 90, 120, 150, 180, 210];
+ 
 const today = new Date().toISOString().slice(0, 10);
-
+ 
 export default function PublicArenaPage() {
   const params = useParams();
   const slug = String(params?.slug || "");
-
+ 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
+ 
   const [arena, setArena] = useState<Arena | null>(null);
   const [settings, setSettings] = useState<ArenaSettings | null>(null);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
@@ -173,28 +178,29 @@ export default function PublicArenaPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [recurringBookings, setRecurringBookings] = useState<RecurringBooking[]>([]);
   const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
-
+ 
   const [tab, setTab] = useState<PublicTab>("avulsa");
-
+ 
   const [fieldId, setFieldId] = useState("");
   const [pricingId, setPricingId] = useState("");
   const [bookingDate, setBookingDate] = useState(today);
   const [bookingTime, setBookingTime] = useState("");
-
+ 
   const [fixedFieldId, setFixedFieldId] = useState("");
   const [fixedWeekday, setFixedWeekday] = useState("1");
   const [fixedStartTime, setFixedStartTime] = useState("");
   const [fixedEndTime, setFixedEndTime] = useState("");
   const [fixedStartDate, setFixedStartDate] = useState(today);
+  const [fixedDurationMinutes, setFixedDurationMinutes] = useState("90");
   const [fixedNotes, setFixedNotes] = useState("");
-
+ 
   const [customerName, setCustomerName] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
-
+ 
   const [createdBooking, setCreatedBooking] = useState<Booking | null>(null);
   const [fixedCreated, setFixedCreated] = useState(false);
-
+ 
   const [myWhatsapp, setMyWhatsapp] = useState("");
   const [myBookings, setMyBookings] = useState<Booking[]>([]);
   const [myRecurring, setMyRecurring] = useState<RecurringBooking[]>([]);
@@ -202,46 +208,77 @@ export default function PublicArenaPage() {
   const [myOtpCode, setMyOtpCode] = useState("");
   const [myOtpSent, setMyOtpSent] = useState(false);
   const [myAuthenticated, setMyAuthenticated] = useState(false);
-
+  const [customerMenuOpen, setCustomerMenuOpen] = useState(false);
+  const [customerSessionName, setCustomerSessionName] = useState("");
+ 
   useEffect(() => {
     loadArena();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
-
+ 
   useEffect(() => {
     if (fields.length > 0) {
       if (!fieldId) setFieldId(fields[0].id);
       if (!fixedFieldId) setFixedFieldId(fields[0].id);
     }
   }, [fields, fieldId, fixedFieldId]);
-
+ 
   useEffect(() => {
     const first = pricingOptions.find((item) => item.field_id === fieldId && item.is_active);
     setPricingId(first?.id || "");
     setBookingTime("");
   }, [fieldId, pricingOptions]);
-
+ 
   useEffect(() => {
     setBookingTime("");
   }, [bookingDate, pricingId]);
-
+ 
+  useEffect(() => {
+    setFixedStartTime("");
+    setFixedEndTime("");
+  }, [fixedFieldId, fixedWeekday, fixedStartDate, fixedDurationMinutes]);
+ 
+  useEffect(() => {
+    if (!arena?.id) return;
+ 
+    const savedSession = localStorage.getItem(getCustomerStorageKey(arena.id));
+ 
+    if (!savedSession) return;
+ 
+    try {
+      const session = JSON.parse(savedSession) as { whatsapp?: string; customerName?: string | null };
+      const savedWhatsapp = session.whatsapp || "";
+ 
+      if (!savedWhatsapp) return;
+ 
+      setMyWhatsapp(savedWhatsapp.replace(/^55/, ""));
+      setCustomerSessionName(session.customerName || "Cliente ArenaFlow");
+      setMyAuthenticated(true);
+      setMyOtpSent(true);
+      fetchMyReservations(savedWhatsapp);
+    } catch {
+      localStorage.removeItem(getCustomerStorageKey(arena.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arena?.id]);
+ 
   const selectedPricing = useMemo(
     () => pricingOptions.find((item) => item.id === pricingId) || null,
     [pricingOptions, pricingId]
   );
-
+ 
   const selectedField = useMemo(
     () => fields.find((item) => item.id === fieldId) || null,
     [fields, fieldId]
   );
-
+ 
   const bookingAmount = useMemo(() => {
     if (!selectedPricing) return 0;
     const date = new Date(`${bookingDate}T00:00:00`);
     const weekend = date.getDay() === 0 || date.getDay() === 6;
     return Number(weekend && selectedPricing.weekend_price ? selectedPricing.weekend_price : selectedPricing.price);
   }, [selectedPricing, bookingDate]);
-
+ 
   const depositAmount = useMemo(() => {
     if (!settings?.require_deposit) return 0;
     if (settings.deposit_amount_type === "percentage") {
@@ -249,62 +286,99 @@ export default function PublicArenaPage() {
     }
     return Number(settings.deposit_fixed_amount || 0);
   }, [settings, bookingAmount]);
-
+ 
   const bookingEndTime = useMemo(() => {
     if (!bookingTime || !selectedPricing) return "";
     return addMinutesToTime(bookingTime, selectedPricing.duration_minutes);
   }, [bookingTime, selectedPricing]);
-
+ 
   const availableTimes = useMemo(() => {
     if (!fieldId || !selectedPricing || !bookingDate) return [];
-
+ 
     const weekday = new Date(`${bookingDate}T00:00:00`).getDay();
     const opening = hours.find((item) => item.weekday === weekday);
-
+ 
     if (!opening?.is_open || !opening.open_time || !opening.close_time) return [];
-
+ 
     const open = timeToMinutes(opening.open_time.slice(0, 5));
-    const close = timeToMinutes(opening.close_time.slice(0, 5));
+    let close = timeToMinutes(opening.close_time.slice(0, 5));
+ 
+    if (close <= open) {
+      close += 24 * 60;
+    }
     const duration = selectedPricing.duration_minutes;
     const times: string[] = [];
-
+ 
     for (let current = open; current + duration <= close; current += 30) {
       const start = current;
       const end = current + duration;
-
+ 
       if (!hasConflictAt(bookings, recurringBookings, blocks, fieldId, bookingDate, start, end)) {
         times.push(minutesToTime(current));
       }
     }
-
+ 
     return times;
   }, [fieldId, selectedPricing, bookingDate, hours, bookings, recurringBookings, blocks]);
-
+ 
+  const fixedReferenceDate = useMemo(() => {
+    return getNextDateForWeekday(fixedStartDate, Number(fixedWeekday));
+  }, [fixedStartDate, fixedWeekday]);
+ 
+  const fixedAvailableTimes = useMemo(() => {
+    if (!fixedFieldId || !fixedStartDate || !fixedWeekday || !fixedDurationMinutes) return [];
+ 
+    const weekday = Number(fixedWeekday);
+    const opening = hours.find((item) => item.weekday === weekday);
+ 
+    if (!opening?.is_open || !opening.open_time || !opening.close_time) return [];
+ 
+    const open = timeToMinutes(opening.open_time.slice(0, 5));
+    let close = timeToMinutes(opening.close_time.slice(0, 5));
+    const duration = Number(fixedDurationMinutes);
+    const times: string[] = [];
+ 
+    if (close <= open) {
+      close += 24 * 60;
+    }
+ 
+    for (let current = open; current + duration <= close; current += 30) {
+      const start = current;
+      const end = current + duration;
+ 
+      if (!hasConflictAt(bookings, recurringBookings, blocks, fixedFieldId, fixedReferenceDate, start, end)) {
+        times.push(minutesToTime(current));
+      }
+    }
+ 
+    return times;
+  }, [fixedFieldId, fixedWeekday, fixedStartDate, fixedReferenceDate, fixedDurationMinutes, hours, bookings, recurringBookings, blocks]);
+ 
   const coverImage = arena?.cover_url || gallery[0]?.image_url || "";
   const activeRules = rules.filter((rule) => rule.is_active);
   const socialInstagram = arena?.instagram ? normalizeSocialUrl(arena.instagram, "instagram") : "";
   const socialFacebook = arena?.facebook ? normalizeSocialUrl(arena.facebook, "facebook") : "";
-
+ 
   async function loadArena() {
     setLoading(true);
-
+ 
     const { data: arenaData, error: arenaError } = await supabase
       .from("arenas")
       .select("*")
       .eq("slug", slug)
       .maybeSingle();
-
+ 
     if (arenaError) console.error(arenaError);
-
+ 
     if (!arenaData) {
       setArena(null);
       setLoading(false);
       return;
     }
-
+ 
     const arenaId = String(arenaData.id);
     setArena(arenaData as Arena);
-
+ 
     const [
       settingsRes,
       galleryRes,
@@ -324,9 +398,9 @@ export default function PublicArenaPage() {
       supabase.from("recurring_bookings").select("*, fields(name)").eq("arena_id", arenaId).in("status", ["active", "pending"]),
       supabase.from("schedule_blocks").select("id, field_id, title, block_date, start_time, end_time, status").eq("arena_id", arenaId).eq("status", "active").gte("block_date", today),
     ]);
-
+ 
     const loadedFields = (fieldsRes.data || []) as Field[];
-
+ 
     setSettings((settingsRes.data || null) as ArenaSettings | null);
     setGallery((galleryRes.data || []) as GalleryImage[]);
     setRules((rulesRes.data || []) as ArenaRule[]);
@@ -335,7 +409,7 @@ export default function PublicArenaPage() {
     setBookings((bookingsRes.data || []) as Booking[]);
     setRecurringBookings((recurringRes.data || []) as RecurringBooking[]);
     setBlocks((blocksRes.data || []) as ScheduleBlock[]);
-
+ 
     if (loadedFields.length > 0) {
       const { data: prices } = await supabase
         .from("field_pricing_options")
@@ -343,30 +417,30 @@ export default function PublicArenaPage() {
         .in("field_id", loadedFields.map((field) => field.id))
         .eq("is_active", true)
         .order("duration_minutes", { ascending: true });
-
+ 
       setPricingOptions((prices || []) as PricingOption[]);
     } else {
       setPricingOptions([]);
     }
-
+ 
     setLoading(false);
   }
-
+ 
   async function createOrFindCustomer(): Promise<Customer | null> {
     if (!arena) return null;
-
+ 
     const clean = customerWhatsapp.replace(/\D/g, "");
     const fullWhatsapp = clean.startsWith("55") ? clean : `55${clean}`;
-
+ 
     const { data: existing } = await supabase
       .from("customers")
       .select("id, name, whatsapp")
       .eq("arena_id", arena.id)
       .eq("whatsapp", fullWhatsapp)
       .maybeSingle();
-
+ 
     if (existing) return existing as Customer;
-
+ 
     const { data, error } = await supabase
       .from("customers")
       .insert({
@@ -377,44 +451,43 @@ export default function PublicArenaPage() {
 })
       .select("id, name, whatsapp")
       .single();
-
+ 
     if (error) {
       alert(error.message);
       return null;
     }
-
+ 
     return data as Customer;
   }
-
+ 
   async function submitBooking(event: React.FormEvent) {
     event.preventDefault();
-
+ 
     if (!arena) return;
     if (!fieldId || !selectedPricing || !bookingDate || !bookingTime) {
       return alert("Escolha quadra, duração, data e horário.");
     }
-
-    if (!customerName.trim()) return alert("Informe seu nome.");
+if (!customerName.trim()) return alert("Informe seu nome.");
     if (customerWhatsapp.replace(/\D/g, "").length < 10) return alert("Informe um WhatsApp válido.");
-
+ 
     const start = timeToMinutes(bookingTime);
     const end = timeToMinutes(bookingEndTime);
-
+ 
     if (hasConflictAt(bookings, recurringBookings, blocks, fieldId, bookingDate, start, end)) {
       return alert("Esse horário acabou de ficar indisponível. Escolha outro horário.");
     }
-
+ 
     setSaving(true);
-
+ 
     const customer = await createOrFindCustomer();
-
+ 
     if (!customer) {
       setSaving(false);
       return;
     }
-
+ 
     const status = settings?.require_deposit ? "aguardando_sinal" : "pendente";
-
+ 
     const { data, error } = await supabase
       .from("bookings")
       .insert({
@@ -437,39 +510,49 @@ export default function PublicArenaPage() {
       })
       .select("*, fields(name)")
       .single();
-
+ 
     setSaving(false);
-
+ 
     if (error) return alert(error.message);
-
+ 
     const created = data as Booking;
     setCreatedBooking(created);
     setBookings((current) => [...current, created]);
   }
-
+ 
   async function submitFixedBooking(event: React.FormEvent) {
     event.preventDefault();
-
+ 
     if (!arena) return;
     if (!fixedFieldId) return alert("Escolha uma quadra.");
     if (!fixedStartTime || !fixedEndTime) return alert("Informe horário inicial e final.");
     if (!fixedStartDate) return alert("Informe a data de início.");
-    if (timeToMinutes(fixedEndTime) <= timeToMinutes(fixedStartTime)) {
+ 
+    const fixedReferenceDate = getNextDateForWeekday(fixedStartDate, Number(fixedWeekday));
+    const fixedStart = timeToMinutes(fixedStartTime);
+    const fixedRange = getComparableTimeRange(fixedStartTime, fixedEndTime, fixedStart);
+    const fixedEnd = fixedRange.end;
+ 
+    if (fixedEnd <= fixedStart) {
       return alert("O horário final precisa ser maior que o inicial.");
     }
-
+ 
+    if (hasConflictAt(bookings, recurringBookings, blocks, fixedFieldId, fixedReferenceDate, fixedStart, fixedEnd)) {
+      return alert("Esse horário não está disponível para reserva fixa. Escolha outro horário.");
+    }
+ 
     if (!customerName.trim()) return alert("Informe seu nome.");
     if (customerWhatsapp.replace(/\D/g, "").length < 10) return alert("Informe um WhatsApp válido.");
-
+ 
     setSaving(true);
-
+ 
     const customer = await createOrFindCustomer();
-
+ 
     if (!customer) {
       setSaving(false);
       return;
     }
-
+ 
     const { error } = await supabase.from("recurring_bookings").insert({
       arena_id: arena.id,
       field_id: fixedFieldId,
@@ -492,100 +575,148 @@ export default function PublicArenaPage() {
         fixedNotes ||
         "Solicitação de reserva fixa enviada pelo link público. A arena precisa aprovar e combinar valores pelo WhatsApp.",
     });
-
+ 
     setSaving(false);
-
+ 
     if (error) return alert(error.message);
-
+ 
     setFixedCreated(true);
   }
-
-  async function loadMyReservations(event: React.FormEvent) {
-    event.preventDefault();
-
+ 
+  async function fetchMyReservations(fullWhatsapp: string) {
     if (!arena) return;
-    const clean = myWhatsapp.replace(/\D/g, "");
-    if (clean.length < 10) return alert("Digite um WhatsApp válido.");
-
-    const fullWhatsapp = clean.startsWith("55") ? clean : `55${clean}`;
-
+ 
     setSearchingMine(true);
-
-    if (!myAuthenticated && !myOtpSent) {
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-      const { error } = await supabase.from("customer_login_codes").insert({
-        arena_id: arena.id,
-        whatsapp: fullWhatsapp,
-        code,
-        expires_at: expiresAt,
-      });
-
-      setSearchingMine(false);
-
-      if (error) return alert(error.message);
-
-      alert(`Código de acesso: ${code}\n\n(temporário em modo MVP; depois enviaremos via WhatsApp automático)`);
-      setMyOtpSent(true);
-      return;
-    }
-
-    if (!myAuthenticated) {
-      if (!myOtpCode) {
-        setSearchingMine(false);
-        return alert("Digite o código recebido.");
-      }
-
-      const { data: otpRows, error: otpError } = await supabase
-        .from("customer_login_codes")
-        .select("*")
-        .eq("arena_id", arena.id)
-        .eq("whatsapp", fullWhatsapp)
-        .eq("code", myOtpCode)
-        .is("used_at", null)
-        .gte("expires_at", new Date().toISOString())
-        .limit(1);
-
-      if (otpError || !otpRows || otpRows.length === 0) {
-        setSearchingMine(false);
-        return alert("Código inválido ou expirado.");
-      }
-
-      await supabase.from("customer_login_codes").update({ used_at: new Date().toISOString() }).eq("id", otpRows[0].id);
-      setMyAuthenticated(true);
-    }
-
+ 
     const [bookingRes, recurringRes] = await Promise.all([
-      supabase.from("bookings").select("*, fields(name)").eq("arena_id", arena.id).eq("customer_whatsapp", fullWhatsapp).order("booking_date", { ascending: false }),
-      supabase.from("recurring_bookings").select("*, fields(name)").eq("arena_id", arena.id).eq("customer_whatsapp", fullWhatsapp).order("start_date", { ascending: false }),
+      supabase
+        .from("bookings")
+        .select("*, fields(name)")
+        .eq("arena_id", arena.id)
+        .eq("customer_whatsapp", fullWhatsapp)
+        .order("booking_date", { ascending: false }),
+      supabase
+        .from("recurring_bookings")
+        .select("*, fields(name)")
+        .eq("arena_id", arena.id)
+        .eq("customer_whatsapp", fullWhatsapp)
+        .order("start_date", { ascending: false }),
     ]);
-
+ 
     setSearchingMine(false);
-
+ 
     if (bookingRes.error) return alert(bookingRes.error.message);
     if (recurringRes.error) return alert(recurringRes.error.message);
-
+ 
     setMyBookings((bookingRes.data || []) as Booking[]);
     setMyRecurring((recurringRes.data || []) as RecurringBooking[]);
   }
-
+ 
+  async function loadMyReservations(event: React.FormEvent) {
+    event.preventDefault();
+ 
+    if (!arena) return;
+ 
+    const clean = myWhatsapp.replace(/\D/g, "");
+    if (clean.length < 10) return alert("Digite um WhatsApp válido.");
+ 
+    const fullWhatsapp = clean.startsWith("55") ? clean : `55${clean}`;
+ 
+    setSearchingMine(true);
+ 
+    if (!myAuthenticated && !myOtpSent) {
+      const response = await fetch("/api/customer-auth/send-code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          arenaId: arena.id,
+          whatsapp: fullWhatsapp,
+        }),
+      });
+ 
+      const result = await response.json();
+ 
+      setSearchingMine(false);
+ 
+      if (!response.ok) {
+        return alert(result.error || "Erro ao enviar código.");
+      }
+ 
+      setMyOtpSent(true);
+ 
+      if (result.whatsappUrl) {
+        window.open(result.whatsappUrl, "_blank");
+      }
+ 
+      return;
+    }
+ 
+    if (!myAuthenticated) {
+      if (!myOtpCode) {
+        setSearchingMine(false);
+        return alert("Digite o código recebido no WhatsApp.");
+      }
+ 
+      const response = await fetch("/api/customer-auth/verify-code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          arenaId: arena.id,
+          whatsapp: fullWhatsapp,
+          code: myOtpCode,
+        }),
+      });
+ 
+      const result = await response.json();
+ 
+      if (!response.ok) {
+        setSearchingMine(false);
+        return alert(result.error || "Código inválido ou expirado.");
+      }
+ 
+      localStorage.setItem(getCustomerStorageKey(arena.id), JSON.stringify(result.session));
+      setCustomerSessionName(result.session?.customerName || "Cliente ArenaFlow");
+      setMyAuthenticated(true);
+    }
+ 
+    await fetchMyReservations(fullWhatsapp);
+  }
+ 
+  function logoutCustomer() {
+    if (arena?.id) {
+      localStorage.removeItem(getCustomerStorageKey(arena.id));
+    }
+ 
+    setMyWhatsapp("");
+    setMyOtpCode("");
+    setMyOtpSent(false);
+    setMyAuthenticated(false);
+    setCustomerSessionName("");
+    setMyBookings([]);
+    setMyRecurring([]);
+    setCustomerMenuOpen(false);
+  }
+ 
   function openArenaWhatsapp() {
     if (!arena?.whatsapp) return;
     window.open(`https://wa.me/${arena.whatsapp}`, "_blank");
   }
-
+ 
   function openBookingWhatsapp() {
     if (!arena || !createdBooking) return;
-
+ 
     const phone = settings?.receipt_whatsapp || arena.whatsapp || createdBooking.customer_whatsapp;
-
+ 
     const pixText = settings?.pix_key
       ? `\n\nChave Pix: ${settings.pix_key}${settings.pix_receiver_name ? `\nRecebedor: ${settings.pix_receiver_name}` : ""}`
       : "";
-
+ 
     const message = `Olá! Solicitei uma reserva pelo link da ${arena.name}.
-
+ 
 Cliente: ${createdBooking.customer_name}
 Quadra: ${getFieldName(createdBooking.fields)}
 Data: ${formatDate(createdBooking.booking_date)}
@@ -595,34 +726,34 @@ Valor: R$ ${formatMoney(createdBooking.amount)}${
         ? `\nSinal: R$ ${formatMoney(depositAmount)}${pixText}\n\nVou enviar o comprovante por aqui.`
         : ""
     }`;
-
+ 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
   }
-
+ 
   function openFixedWhatsapp() {
     if (!arena) return;
-
+ 
     const phone = arena.whatsapp || "";
     const field = fields.find((item) => item.id === fixedFieldId);
-
+ 
     const message = `Olá! Quero confirmar uma reserva fixa/mensalista na ${arena.name}.
-
+ 
 Nome: ${customerName}
 Quadra: ${field?.name || "Não informada"}
 Dia: ${weekDays[Number(fixedWeekday)]}
 Horário: ${fixedStartTime} às ${fixedEndTime}
 Início: ${formatDate(fixedStartDate)}
-
+ 
 ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
-
+ 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
   }
-
+ 
   function scrollToBooking() {
     setTab("avulsa");
     document.getElementById("booking-area")?.scrollIntoView({ behavior: "smooth" });
   }
-
+ 
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#07110D] text-white">
@@ -633,7 +764,7 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
       </main>
     );
   }
-
+ 
   if (!arena) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#07110D] p-5 text-white">
@@ -644,7 +775,7 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
       </main>
     );
   }
-
+ 
   return (
     <main className="min-h-screen bg-[#07110D] pb-24 text-white md:pb-0">
       <Hero
@@ -655,22 +786,44 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
         onWhatsapp={openArenaWhatsapp}
         onReserve={scrollToBooking}
       />
-
+ 
       <ArenaGalleryShowcase
         images={gallery}
         coverImage={coverImage}
         arenaName={arena.name}
         onReserve={scrollToBooking}
       />
-
+ 
       <MobileFloatingActions arena={arena} instagram={socialInstagram} facebook={socialFacebook} onWhatsapp={openArenaWhatsapp} />
-
+ 
       <MobileNav tab={tab} setTab={setTab} />
-
+ 
+      <CustomerAccessMenu
+        open={customerMenuOpen}
+        setOpen={setCustomerMenuOpen}
+        authenticated={myAuthenticated}
+        whatsapp={myWhatsapp}
+        customerName={customerSessionName}
+        onLogout={logoutCustomer}
+      >
+        <MyReservationsPanel
+          whatsapp={myWhatsapp}
+          setWhatsapp={setMyWhatsapp}
+          bookings={myBookings}
+          recurring={myRecurring}
+          loading={searchingMine}
+          onSubmit={loadMyReservations}
+          otpCode={myOtpCode}
+          setOtpCode={setMyOtpCode}
+          otpSent={myOtpSent}
+          authenticated={myAuthenticated}
+        />
+      </CustomerAccessMenu>
+ 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1.12fr_0.88fr] md:px-8 md:py-12">
         <div className="space-y-6">
           <DesktopTabs tab={tab} setTab={setTab} />
-
+ 
           {tab === "avulsa" && (
             <BookingPanel
               fields={fields}
@@ -707,7 +860,7 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
               setTab={setTab}
             />
           )}
-
+ 
           {tab === "fixa" && (
             <FixedPanel
               fields={fields}
@@ -721,6 +874,10 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
               setEndTime={setFixedEndTime}
               startDate={fixedStartDate}
               setStartDate={setFixedStartDate}
+              durationMinutes={fixedDurationMinutes}
+              setDurationMinutes={setFixedDurationMinutes}
+              referenceDate={fixedReferenceDate}
+              availableTimes={fixedAvailableTimes}
               notes={fixedNotes}
               setNotes={setFixedNotes}
               customerName={customerName}
@@ -734,27 +891,12 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
               setTab={setTab}
             />
           )}
-
-          {tab === "minhas" && (
-            <MyReservationsPanel
-              whatsapp={myWhatsapp}
-              setWhatsapp={setMyWhatsapp}
-              bookings={myBookings}
-              recurring={myRecurring}
-              loading={searchingMine}
-              onSubmit={loadMyReservations}
-              otpCode={myOtpCode}
-              setOtpCode={setMyOtpCode}
-              otpSent={myOtpSent}
-              authenticated={myAuthenticated}
-            />
-          )}
-
+ 
           {tab === "info" && (
             <InfoPanel arena={arena} rules={activeRules} hours={hours} images={gallery} />
           )}
         </div>
-
+ 
         <aside className="space-y-6">
           <AboutCard arena={arena} instagram={socialInstagram} facebook={socialFacebook} />
           <LocationCard arena={arena} />
@@ -764,9 +906,9 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
           <DepositCard settings={settings} />
         </aside>
       </section>
-
+ 
       <MobileBottomCTA onReserve={scrollToBooking} onWhatsapp={openArenaWhatsapp} />
-
+ 
       <footer className="border-t border-white/12 px-4 py-10 text-center text-sm text-slate-400">
         <p className="font-black text-white">{arena.name}</p>
         <p className="mt-2">Reserva online segura com ArenaFlow.</p>
@@ -774,7 +916,7 @@ ${fixedNotes ? `Observação: ${fixedNotes}` : ""}`;
     </main>
   );
 }
-
+ 
 function Hero({
   arena,
   coverImage,
@@ -811,7 +953,7 @@ function Hero({
                 <ShieldCheck className="text-emerald-400" size={30} />
               )}
             </div>
-
+ 
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300 md:text-xs">
                 Agendamento online
@@ -825,7 +967,7 @@ function Hero({
               )}
             </div>
           </div>
-
+ 
           <div className="hidden items-center gap-2 md:flex">
             {arena.maps_url && (
               <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white transition hover:border-emerald-400">
@@ -833,36 +975,36 @@ function Hero({
                 Rota
               </a>
             )}
-
+ 
             {instagram && (
               <a href={instagram} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white transition hover:border-emerald-400">
                 <InstagramIcon size={18} />
                 Insta
               </a>
             )}
-
+ 
             <button type="button" onClick={onWhatsapp} className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400">
               <MessageCircle size={18} />
               WhatsApp
             </button>
           </div>
         </div>
-
+ 
         <div className="mt-8 grid gap-5 md:mt-12 md:grid-cols-[1.05fr_.95fr] md:items-end">
           <div>
             <div className="inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/15 px-4 py-2 text-xs font-black uppercase tracking-widest text-emerald-200">
               Escolha quadra, data e horário
             </div>
-
+ 
             <h2 className="mt-4 max-w-3xl text-4xl font-black tracking-tight md:text-6xl">
               Reserve seu horário em poucos cliques.
             </h2>
-
+ 
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-200 md:text-lg">
               {arena.description ||
                 "Veja os horários disponíveis, escolha sua quadra e envie a solicitação direto para a arena."}
             </p>
-
+ 
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
@@ -872,7 +1014,7 @@ function Hero({
                 Agendar agora
                 <ChevronRight size={20} />
               </button>
-
+ 
               {arena.whatsapp && (
                 <button
                   type="button"
@@ -883,7 +1025,7 @@ function Hero({
                   Tirar dúvida
                 </button>
               )}
-
+ 
               {arena.maps_url && (
                 <a
                   href={arena.maps_url}
@@ -897,7 +1039,7 @@ function Hero({
               )}
             </div>
           </div>
-
+ 
           <div className="rounded-[2rem] border border-emerald-500/20 bg-[#0B1411]/90 p-5 shadow-2xl shadow-black/40 backdrop-blur">
             <p className="text-xs font-black uppercase tracking-widest text-emerald-400">Pronto para reservar</p>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -919,7 +1061,7 @@ function Hero({
     </section>
   );
 }
-
+ 
 function HeroMetric({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
   return (
     <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.08] p-3">
@@ -929,7 +1071,7 @@ function HeroMetric({ icon, title, text }: { icon: React.ReactNode; title: strin
     </div>
   );
 }
-
+ 
 function ArenaGalleryShowcase({
   images,
   coverImage,
@@ -942,9 +1084,9 @@ function ArenaGalleryShowcase({
   onReserve: () => void;
 }) {
   const photos = images.length > 0 ? images : coverImage ? [{ id: "cover", image_url: coverImage, image_order: 0 }] : [];
-
+ 
   if (photos.length === 0) return null;
-
+ 
   return (
     <section className="border-b border-white/12 bg-[#07110D]">
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-8 md:py-8">
@@ -953,7 +1095,7 @@ function ArenaGalleryShowcase({
             <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-400">Fotos da arena</p>
             <h2 className="mt-1 text-2xl font-black text-white md:text-3xl">Conheça antes de reservar</h2>
           </div>
-
+ 
           <button
             type="button"
             onClick={onReserve}
@@ -962,7 +1104,7 @@ function ArenaGalleryShowcase({
             Reservar
           </button>
         </div>
-
+ 
         <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-4 md:overflow-visible md:px-0 md:[scrollbar-width:auto] [&::-webkit-scrollbar]:hidden">
           {photos.slice(0, 8).map((image, index) => (
             <a
@@ -987,7 +1129,7 @@ function ArenaGalleryShowcase({
     </section>
   );
 }
-
+ 
 function BookingPanel(props: {
   fields: Field[];
   pricingOptions: PricingOption[];
@@ -1020,7 +1162,7 @@ function BookingPanel(props: {
   setTab: (tab: PublicTab) => void;
 }) {
   const p = props;
-
+ 
   return (
     <section id="booking-area" className="rounded-[2rem] border border-emerald-500/20 bg-[#101923]/95 p-4 shadow-2xl shadow-black/30 md:p-7">
       <div className="rounded-[1.7rem] border border-emerald-400/20 bg-gradient-to-br from-emerald-500/18 via-[#0B2A20] to-[#0B1411] p-5">
@@ -1032,7 +1174,7 @@ function BookingPanel(props: {
               Escolha quadra, duração, data e horário. Depois informe seus dados e envie a solicitação.
             </p>
           </div>
-
+ 
           <div className="rounded-2xl border border-white/12 bg-black/20 px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-widest text-slate-300">Resumo</p>
             <p className="mt-1 text-lg font-black text-white">
@@ -1042,9 +1184,9 @@ function BookingPanel(props: {
           </div>
         </div>
       </div>
-
+ 
       <ReservationTypeSwitch active="avulsa" setTab={p.setTab} />
-
+ 
       {p.createdBooking ? (
         <SuccessPanel
           booking={p.createdBooking}
@@ -1068,7 +1210,7 @@ function BookingPanel(props: {
               />
             ))}
           </div>
-
+ 
           <StepHeader number="2" title="Escolha duração e data" description="O sistema mostra apenas horários disponíveis." />
           <div className="grid gap-4 md:grid-cols-3">
             <div>
@@ -1084,12 +1226,12 @@ function BookingPanel(props: {
                   ))}
               </SelectBox>
             </div>
-
+ 
             <div>
               <Label>Data</Label>
               <InputBox type="date" min={today} value={p.selectedDate} onChange={p.setSelectedDate} />
             </div>
-
+ 
             <div>
               <Label>Valor</Label>
               <div className="mt-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -1098,7 +1240,7 @@ function BookingPanel(props: {
               </div>
             </div>
           </div>
-
+ 
           <StepHeader number="3" title="Escolha o horário" description="Horários ocupados, fixos e bloqueios não aparecem." />
           <div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
@@ -1107,7 +1249,7 @@ function BookingPanel(props: {
                   Nenhum horário disponível para essa combinação.
                 </div>
               )}
-
+ 
               {p.availableTimes.map((time) => (
                 <button
                   type="button"
@@ -1124,7 +1266,7 @@ function BookingPanel(props: {
               ))}
             </div>
           </div>
-
+ 
           <StepHeader number="4" title="Seus dados" description="A arena usa seus dados para confirmar a reserva pelo WhatsApp." />
           <CustomerFields
             name={p.customerName}
@@ -1134,7 +1276,7 @@ function BookingPanel(props: {
             email={p.customerEmail}
             setEmail={p.setCustomerEmail}
           />
-
+ 
           {p.settings?.require_deposit && (
             <div className="rounded-3xl border border-yellow-400/30 bg-yellow-400/10 p-5">
               <div className="flex items-start gap-3">
@@ -1147,7 +1289,7 @@ function BookingPanel(props: {
               </div>
             </div>
           )}
-
+ 
           <div className="sticky bottom-20 z-20 rounded-[1.7rem] border border-white/12 bg-[#07110D]/95 p-3 backdrop-blur md:static md:bg-transparent md:p-0">
             <PrimaryButton disabled={p.saving}>
               {p.saving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
@@ -1159,7 +1301,7 @@ function BookingPanel(props: {
     </section>
   );
 }
-
+ 
 function StepHeader({ number, title, description }: { number: string; title: string; description: string }) {
   return (
     <div className="flex items-start gap-3">
@@ -1173,7 +1315,7 @@ function StepHeader({ number, title, description }: { number: string; title: str
     </div>
   );
 }
-
+ 
 function FixedPanel(props: {
   fields: Field[];
   fieldId: string;
@@ -1186,6 +1328,10 @@ function FixedPanel(props: {
   setEndTime: (value: string) => void;
   startDate: string;
   setStartDate: (value: string) => void;
+  durationMinutes: string;
+  setDurationMinutes: (value: string) => void;
+  referenceDate: string;
+  availableTimes: string[];
   notes: string;
   setNotes: (value: string) => void;
   customerName: string;
@@ -1199,7 +1345,7 @@ function FixedPanel(props: {
   setTab: (tab: PublicTab) => void;
 }) {
   const p = props;
-
+ 
   return (
     <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-2xl shadow-black/20 md:p-7">
       <PanelHeader
@@ -1207,9 +1353,9 @@ function FixedPanel(props: {
         title="Solicitar horário recorrente"
         description="Ideal para quem joga toda semana ou quer fechar mensalista. A arena confirma valor e pagamento pelo WhatsApp."
       />
-
+ 
       <ReservationTypeSwitch active="fixa" setTab={p.setTab} />
-
+ 
       {p.created ? (
         <div className="mt-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-6">
           <div className="flex items-start gap-3">
@@ -1221,7 +1367,7 @@ function FixedPanel(props: {
               <p className="mt-2 text-slate-200">A arena vai confirmar sua reserva fixa, valor mensal, vencimento e forma de pagamento pelo WhatsApp.</p>
             </div>
           </div>
-
+ 
           <button type="button" onClick={p.onWhatsapp} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white">
             <MessageCircle />
             Falar com a arena
@@ -1241,7 +1387,7 @@ function FixedPanel(props: {
                 ))}
               </SelectBox>
             </div>
-
+ 
             <div>
               <Label>Dia da semana</Label>
               <SelectBox value={p.weekday} onChange={p.setWeekday}>
@@ -1252,32 +1398,81 @@ function FixedPanel(props: {
                 ))}
               </SelectBox>
             </div>
-
-            <div>
-              <Label>Horário inicial</Label>
-              <InputBox type="time" value={p.startTime} onChange={p.setStartTime} />
-            </div>
-
-            <div>
-              <Label>Horário final</Label>
-              <InputBox type="time" value={p.endTime} onChange={p.setEndTime} />
-            </div>
-
+ 
             <div>
               <Label>Data para começar</Label>
               <InputBox type="date" min={today} value={p.startDate} onChange={p.setStartDate} />
+              <p className="mt-2 text-xs text-slate-400">
+                Primeira data considerada: {formatDate(p.referenceDate)}
+              </p>
             </div>
-
+ 
+            <div>
+              <Label>Duração do horário</Label>
+              <SelectBox value={p.durationMinutes} onChange={p.setDurationMinutes}>
+                {fixedDurationOptions.map((duration) => (
+                  <option key={duration} value={String(duration)}>
+                    {durationLabels[duration] || `${duration} min`}
+                  </option>
+                ))}
+              </SelectBox>
+            </div>
+ 
+            <div className="md:col-span-2">
+              <Label>Horários disponíveis para recorrência</Label>
+ 
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
+                {p.availableTimes.length === 0 && (
+                  <div className="col-span-full rounded-2xl border border-dashed border-white/12 p-5 text-center text-sm text-slate-300">
+                    Nenhum horário disponível para essa quadra, dia e duração.
+                  </div>
+                )}
+ 
+                {p.availableTimes.map((time) => {
+                  const endTime = addMinutesToTime(time, Number(p.durationMinutes));
+ 
+                  return (
+                    <button
+                      type="button"
+                      key={time}
+                      onClick={() => {
+                        p.setStartTime(time);
+                        p.setEndTime(endTime);
+                      }}
+                      className={
+                        p.startTime === time
+                          ? "rounded-2xl bg-emerald-500 px-4 py-4 text-base font-black text-white shadow-lg shadow-emerald-500/20"
+                          : "rounded-2xl border border-white/12 bg-[#0B1411] px-4 py-4 text-base font-black text-white transition hover:border-emerald-400 hover:bg-emerald-500/10"
+                      }
+                    >
+                      <span className="block">{time}</span>
+                      <span className="mt-1 block text-[11px] text-slate-300">até {endTime}</span>
+                    </button>
+                  );
+                })}
+              </div>
+ 
+              {p.startTime && p.endTime && (
+                <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Horário selecionado</p>
+                  <p className="mt-1 text-xl font-black text-white">
+                    {weekDays[Number(p.weekday)]} • {p.startTime} às {p.endTime}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-300">A partir de {formatDate(p.referenceDate)}</p>
+                </div>
+              )}
+            </div>
+ 
             <div>
               <Label>WhatsApp</Label>
               <WhatsappInput value={p.customerWhatsapp} onChange={p.setCustomerWhatsapp} />
             </div>
-
+ 
             <div className="md:col-span-2">
               <Label>Nome completo</Label>
               <InputBox value={p.customerName} onChange={p.setCustomerName} placeholder="Seu nome" />
             </div>
-
+ 
             <div className="md:col-span-2">
               <Label>Observação opcional</Label>
               <textarea
@@ -1288,7 +1483,7 @@ function FixedPanel(props: {
               />
             </div>
           </div>
-
+ 
           <PrimaryButton disabled={p.saving}>
             {p.saving ? <Loader2 className="animate-spin" /> : <CalendarDays />}
             {p.saving ? "Enviando..." : "Solicitar reserva fixa"}
@@ -1298,7 +1493,7 @@ function FixedPanel(props: {
     </section>
   );
 }
-
+ 
 function MyReservationsPanel({
   whatsapp,
   setWhatsapp,
@@ -1323,14 +1518,15 @@ function MyReservationsPanel({
   authenticated: boolean;
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-2xl shadow-black/20 md:p-7">
+    <section className="rounded-[2rem] border border-white/12 bg-[#0B1411] p-4 shadow-xl shadow-black/20">
       <PanelHeader
-        eyebrow="Área do cliente"
+        eyebrow="Histórico"
         title="Minhas reservas"
-        description="Digite seu WhatsApp para consultar reservas avulsas, fixas e mensalistas."
+        description={authenticated ? "Confira suas reservas avulsas, fixas e mensalistas." : "Digite seu WhatsApp para receber o código de acesso."}
       />
-
-      <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-white/12 bg-[#0B1411] p-5">
+ 
+      {!authenticated && (
+      <form onSubmit={onSubmit} className="mt-5 rounded-3xl border border-white/12 bg-[#101923] p-4">
         <Label>WhatsApp</Label>
         <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/12 bg-[#101923] focus-within:border-emerald-400">
           <span className="flex items-center border-r border-white/12 px-4 font-black text-emerald-400">+55</span>
@@ -1341,7 +1537,7 @@ function MyReservationsPanel({
             className="w-full bg-transparent p-4 text-white outline-none"
           />
         </div>
-
+ 
         {otpSent && !authenticated && (
           <div className="mt-4">
             <Label>Código de acesso</Label>
@@ -1353,19 +1549,20 @@ function MyReservationsPanel({
             />
           </div>
         )}
-
+ 
         <button disabled={loading} className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white disabled:opacity-60">
-          {loading ? "..." : otpSent && !authenticated ? "Entrar" : "Receber código"}
+          {loading ? "..." : otpSent && !authenticated ? "Entrar" : "Receber código no WhatsApp"}
         </button>
       </form>
-
+      )}
+ 
       <div className="mt-6 space-y-3">
         {bookings.length === 0 && recurring.length === 0 && (
           <div className="rounded-3xl border border-dashed border-white/12 p-8 text-center text-slate-300">
-            Suas reservas aparecerão aqui após buscar pelo WhatsApp.
+            Entre pelo WhatsApp para visualizar seu histórico de reservas.
           </div>
         )}
-
+ 
         {recurring.map((item) => (
           <ReservationCard
             key={item.id}
@@ -1378,7 +1575,7 @@ function MyReservationsPanel({
             status={item.payment_status || item.status}
           />
         ))}
-
+ 
         {bookings.map((item) => (
           <ReservationCard
             key={item.id}
@@ -1395,7 +1592,7 @@ function MyReservationsPanel({
     </section>
   );
 }
-
+ 
 function InfoPanel({
   arena,
   rules,
@@ -1414,7 +1611,7 @@ function InfoPanel({
         title="Conheça a arena"
         description="Veja fotos, regras, funcionamento, localização e redes sociais."
       />
-
+ 
       <div className="mt-6 grid gap-6">
         <AboutCard arena={arena} instagram={arena.instagram ? normalizeSocialUrl(arena.instagram, "instagram") : ""} facebook={arena.facebook ? normalizeSocialUrl(arena.facebook, "facebook") : ""} />
         <LocationCard arena={arena} />
@@ -1425,7 +1622,7 @@ function InfoPanel({
     </section>
   );
 }
-
+ 
 function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: string; facebook: string }) {
   return (
     <Card title="Contato e informações" icon={<MessageCircle />}>
@@ -1435,7 +1632,7 @@ function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: st
             {arena.description}
           </p>
         )}
-
+ 
         <div className="grid gap-3">
           {arena.whatsapp && (
             <button
@@ -1453,7 +1650,7 @@ function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: st
               <ExternalLink size={18} className="text-emerald-300" />
             </button>
           )}
-
+ 
           {instagram && (
             <a
               href={instagram}
@@ -1471,7 +1668,7 @@ function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: st
               <ExternalLink size={18} className="text-slate-300" />
             </a>
           )}
-
+ 
           {arena.maps_url && (
             <a
               href={arena.maps_url}
@@ -1490,17 +1687,17 @@ function AboutCard({ arena, instagram, facebook }: { arena: Arena; instagram: st
             </a>
           )}
         </div>
-
+ 
         {arena.phone && <InfoLine icon={<Phone />} text={arena.phone} />}
         {facebook && <InfoLine icon={<Globe />} text="Facebook disponível" />}
       </div>
     </Card>
   );
 }
-
+ 
 function LocationCard({ arena }: { arena: Arena }) {
   if (!arena.maps_url && !arena.address) return null;
-
+ 
   return (
     <Card title="Como chegar" icon={<MapPin />}>
       <div className="space-y-4">
@@ -1509,7 +1706,7 @@ function LocationCard({ arena }: { arena: Arena }) {
           <p className="mt-3 font-bold text-white">{arena.address || "Localização da arena"}</p>
           <p className="mt-1 text-sm text-slate-300">Abra a rota diretamente no Google Maps.</p>
         </div>
-
+ 
         {arena.maps_url && (
           <a href={arena.maps_url} target="_blank" className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white transition hover:bg-emerald-400">
             <MapPin size={18} />
@@ -1520,14 +1717,14 @@ function LocationCard({ arena }: { arena: Arena }) {
     </Card>
   );
 }
-
+ 
 function HoursCard({ hours }: { hours: OpeningHour[] }) {
   return (
     <Card title="Funcionamento" icon={<Clock />}>
       <div className="space-y-2">
         {weekDays.map((day, index) => {
           const hour = hours.find((item) => item.weekday === index);
-
+ 
           return (
             <div key={day} className="flex items-center justify-between rounded-2xl bg-white/[0.06] px-4 py-3 text-sm">
               <span className="font-bold text-white">{day}</span>
@@ -1543,10 +1740,10 @@ function HoursCard({ hours }: { hours: OpeningHour[] }) {
     </Card>
   );
 }
-
+ 
 function RulesCard({ rules }: { rules: ArenaRule[] }) {
   if (rules.length === 0) return null;
-
+ 
   return (
     <Card title="Regras da arena" icon={<ShieldCheck />}>
       <div className="space-y-3">
@@ -1560,13 +1757,13 @@ function RulesCard({ rules }: { rules: ArenaRule[] }) {
     </Card>
   );
 }
-
+ 
 function GalleryCard({ images }: { images: GalleryImage[] }) {
   if (images.length === 0) return null;
-
+ 
   const featured = images[0];
   const rest = images.slice(1, 9);
-
+ 
   return (
     <Card title="Fotos da arena" icon={<Camera />}>
       <div className="space-y-3">
@@ -1584,7 +1781,7 @@ function GalleryCard({ images }: { images: GalleryImage[] }) {
             <ExternalLink size={18} className="text-emerald-300" />
           </div>
         </a>
-
+ 
         {rest.length > 0 && (
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             {rest.map((image, index) => (
@@ -1602,10 +1799,10 @@ function GalleryCard({ images }: { images: GalleryImage[] }) {
     </Card>
   );
 }
-
+ 
 function DepositCard({ settings }: { settings: ArenaSettings | null }) {
   if (!settings?.require_deposit) return null;
-
+ 
   return (
     <div className="rounded-[2rem] border border-yellow-400/30 bg-yellow-400/10 p-5">
       <div className="flex items-start gap-3">
@@ -1618,7 +1815,7 @@ function DepositCard({ settings }: { settings: ArenaSettings | null }) {
     </div>
   );
 }
-
+ 
 function ContactQuickActions({
   arena,
   instagram,
@@ -1642,21 +1839,21 @@ function ContactQuickActions({
           WhatsApp
         </button>
       )}
-
+ 
       {instagram && (
         <a href={instagram} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
           <InstagramIcon size={18} />
           Instagram
         </a>
       )}
-
+ 
       {arena.maps_url && (
         <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
           <MapPin size={18} />
           Como chegar
         </a>
       )}
-
+ 
       {facebook && (
         <a href={facebook} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl border border-white/12 bg-white/[0.10] px-4 py-3 font-black text-white">
           <Globe size={18} />
@@ -1666,7 +1863,7 @@ function ContactQuickActions({
     </div>
   );
 }
-
+ 
 function MobileFloatingActions({
   arena,
   instagram,
@@ -1690,13 +1887,13 @@ function MobileFloatingActions({
           <MessageCircle size={26} />
         </button>
       )}
-
+ 
       {instagram && (
         <a href={instagram} target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-[#101923] text-emerald-300 shadow-xl" aria-label="Instagram da arena">
           <InstagramIcon size={22} />
         </a>
       )}
-
+ 
       {arena.maps_url && (
         <a href={arena.maps_url} target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-[#101923] text-emerald-300 shadow-xl" aria-label="Como chegar">
           <Navigation size={22} />
@@ -1705,7 +1902,7 @@ function MobileFloatingActions({
     </div>
   );
 }
-
+ 
 function MobileBottomCTA({ onReserve, onWhatsapp }: { onReserve: () => void; onWhatsapp: () => void }) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-emerald-500/15 bg-[#07110D]/95 p-3 shadow-[0_-8px_30px_rgba(0,0,0,.25)] backdrop-blur md:hidden">
@@ -1720,31 +1917,91 @@ function MobileBottomCTA({ onReserve, onWhatsapp }: { onReserve: () => void; onW
     </div>
   );
 }
-
+ 
+ 
+function CustomerAccessMenu({
+  open,
+  setOpen,
+  authenticated,
+  whatsapp,
+  customerName,
+  onLogout,
+  children,
+}: {
+  open: boolean;
+  setOpen: (value: boolean) => void;
+  authenticated: boolean;
+  whatsapp: string;
+  customerName: string;
+  onLogout: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed left-4 top-4 z-50 md:left-6 md:top-6">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-[#101923]/95 px-4 py-3 text-sm font-black text-white shadow-2xl shadow-black/30 transition hover:border-emerald-300 hover:bg-[#132033]"
+        aria-label="Abrir área do cliente"
+      >
+        {open ? <X size={18} /> : <UserRound size={18} className="text-emerald-300" />}
+        <span>Minhas reservas</span>
+      </button>
+ 
+      {open && (
+        <div className="mt-3 max-h-[calc(100vh-7rem)] w-[calc(100vw-2rem)] overflow-y-auto rounded-3xl border border-white/12 bg-[#101923] p-3 shadow-2xl shadow-black/50 sm:w-[420px]">
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Área do cliente</p>
+            {authenticated ? (
+              <div className="mt-2">
+                <p className="text-base font-black text-white">{customerName || "Cliente ArenaFlow"}</p>
+                <p className="mt-1 text-sm text-slate-300">+55 {whatsapp.replace(/^55/, "")}</p>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-slate-200">Entre com seu WhatsApp para consultar reservas e solicitações.</p>
+            )}
+          </div>
+ 
+          <div className="mt-3">{children}</div>
+ 
+          {authenticated && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-left font-black text-red-200 transition hover:border-red-300/50"
+            >
+              <LogOut size={18} />
+              Sair desta conta
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+ 
 function MobileNav({ tab, setTab }: { tab: PublicTab; setTab: (tab: PublicTab) => void }) {
   return (
     <div className="sticky top-0 z-30 border-b border-emerald-500/15 bg-[#07110D]/95 backdrop-blur md:hidden">
-      <div className="grid grid-cols-4 px-3 py-2 text-xs font-bold">
+      <div className="grid grid-cols-3 px-3 py-2 text-xs font-bold">
         <MobileTab active={tab === "avulsa"} onClick={() => setTab("avulsa")} label="Agendar" />
         <MobileTab active={tab === "fixa"} onClick={() => setTab("fixa")} label="Fixa" />
-        <MobileTab active={tab === "minhas"} onClick={() => setTab("minhas")} label="Minhas" />
         <MobileTab active={tab === "info"} onClick={() => setTab("info")} label="Info" />
       </div>
     </div>
   );
 }
-
+ 
 function DesktopTabs({ tab, setTab }: { tab: PublicTab; setTab: (tab: PublicTab) => void }) {
   return (
-    <div className="hidden grid-cols-4 gap-3 md:grid">
+    <div className="hidden grid-cols-3 gap-3 md:grid">
       <DesktopTab active={tab === "avulsa"} onClick={() => setTab("avulsa")} label="Reserva avulsa" />
       <DesktopTab active={tab === "fixa"} onClick={() => setTab("fixa")} label="Reserva fixa" />
-      <DesktopTab active={tab === "minhas"} onClick={() => setTab("minhas")} label="Minhas reservas" />
       <DesktopTab active={tab === "info"} onClick={() => setTab("info")} label="Informações" />
     </div>
   );
 }
-
+ 
 function ReservationTypeSwitch({ active, setTab }: { active: "avulsa" | "fixa"; setTab: (tab: PublicTab) => void }) {
   return (
     <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1760,7 +2017,7 @@ function ReservationTypeSwitch({ active, setTab }: { active: "avulsa" | "fixa"; 
         <p className={active === "avulsa" ? "font-black text-emerald-300" : "font-black text-white"}>Reserva avulsa</p>
         <p className="mt-1 text-sm text-slate-300">Para reservar um horário específico.</p>
       </button>
-
+ 
       <button
         type="button"
         onClick={() => setTab("fixa")}
@@ -1776,7 +2033,7 @@ function ReservationTypeSwitch({ active, setTab }: { active: "avulsa" | "fixa"; 
     </div>
   );
 }
-
+ 
 function CustomerFields({
   name,
   setName,
@@ -1798,18 +2055,18 @@ function CustomerFields({
         <UserRound className="text-emerald-400" />
         <h3 className="text-xl font-black">Seus dados</h3>
       </div>
-
+ 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <Label>Nome completo</Label>
           <InputBox value={name} onChange={setName} placeholder="Seu nome" />
         </div>
-
+ 
         <div>
           <Label>WhatsApp</Label>
           <WhatsappInput value={whatsapp} onChange={setWhatsapp} />
         </div>
-
+ 
         <div className="md:col-span-2">
           <Label>Email opcional</Label>
           <InputBox value={email} onChange={setEmail} placeholder="seuemail@email.com" />
@@ -1818,7 +2075,7 @@ function CustomerFields({
     </div>
   );
 }
-
+ 
 function SuccessPanel({
   booking,
   requireDeposit,
@@ -1839,14 +2096,14 @@ function SuccessPanel({
     await navigator.clipboard.writeText(pixKey);
     alert("Chave Pix copiada!");
   }
-
+ 
   return (
     <div className="mt-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-6">
       <div className="flex items-start gap-3">
         <div className="rounded-2xl bg-emerald-500 p-3 text-white">
           <CheckCircle2 />
         </div>
-
+ 
         <div>
           <h3 className="text-2xl font-black">Reserva solicitada!</h3>
           <p className="mt-2 text-slate-200">
@@ -1855,12 +2112,12 @@ function SuccessPanel({
           <p className="mt-1 font-black text-white">R$ {formatMoney(booking.amount)}</p>
         </div>
       </div>
-
+ 
       {requireDeposit && (
         <div className="mt-5 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4">
           <p className="font-black text-yellow-100">Para confirmar, envie o comprovante do sinal.</p>
           <p className="mt-2 text-2xl font-black text-white">R$ {formatMoney(depositAmount)}</p>
-
+ 
           {pixKey && (
             <button type="button" onClick={copyPix} className="mt-3 flex items-center gap-2 rounded-xl border border-yellow-300/30 px-4 py-3 font-bold text-yellow-100">
               <Copy size={16} />
@@ -1869,12 +2126,12 @@ function SuccessPanel({
           )}
         </div>
       )}
-
+ 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <button type="button" onClick={onWhatsapp} className="rounded-2xl bg-emerald-500 px-5 py-4 font-black text-white">
           Ir para WhatsApp
         </button>
-
+ 
         <button type="button" onClick={onNew} className="rounded-2xl border border-white/12 px-5 py-4 font-black text-white">
           Fazer outra reserva
         </button>
@@ -1882,7 +2139,7 @@ function SuccessPanel({
     </div>
   );
 }
-
+ 
 function FieldCard({
   field,
   active,
@@ -1913,7 +2170,7 @@ function FieldCard({
           </div>
         )}
       </div>
-
+ 
       <div className="p-4">
         <p className="font-black text-white">{field.name}</p>
         <p className="mt-1 text-sm text-slate-300">
@@ -1924,7 +2181,7 @@ function FieldCard({
     </button>
   );
 }
-
+ 
 function ReservationCard({
   title,
   name,
@@ -1952,7 +2209,7 @@ function ReservationCard({
             {field} • {date} • {time}
           </p>
         </div>
-
+ 
         <div className="text-left md:text-right">
           <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">{translateStatus(status)}</span>
           <p className="mt-2 text-xl font-black text-white">R$ {formatMoney(amount)}</p>
@@ -1961,7 +2218,7 @@ function ReservationCard({
     </div>
   );
 }
-
+ 
 function PanelHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return (
     <div>
@@ -1971,7 +2228,7 @@ function PanelHeader({ eyebrow, title, description }: { eyebrow: string; title: 
     </div>
   );
 }
-
+ 
 function HeroFeature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
   return (
     <div className="rounded-3xl border border-white/12 bg-white/[0.06] p-4 backdrop-blur">
@@ -1981,7 +2238,7 @@ function HeroFeature({ icon, title, text }: { icon: React.ReactNode; title: stri
     </div>
   );
 }
-
+ 
 function Card({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="rounded-[2rem] border border-white/12 bg-[#101923]/95 p-5 shadow-xl shadow-black/10">
@@ -1993,7 +2250,7 @@ function Card({ title, icon, children }: { title: string; icon: React.ReactNode;
     </section>
   );
 }
-
+ 
 function InfoLine({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex items-center gap-3">
@@ -2002,7 +2259,7 @@ function InfoLine({ icon, text }: { icon: React.ReactNode; text: string }) {
     </div>
   );
 }
-
+ 
 function MobileTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className={active ? "rounded-xl bg-emerald-500 py-3 font-black text-black" : "py-3 text-slate-300"}>
@@ -2010,7 +2267,7 @@ function MobileTab({ active, label, onClick }: { active: boolean; label: string;
     </button>
   );
 }
-
+ 
 function DesktopTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
@@ -2026,11 +2283,11 @@ function DesktopTab({ active, label, onClick }: { active: boolean; label: string
     </button>
   );
 }
-
+ 
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-sm font-black text-slate-200">{children}</label>;
 }
-
+ 
 function InputBox({
   value,
   onChange,
@@ -2055,7 +2312,7 @@ function InputBox({
     />
   );
 }
-
+ 
 function WhatsappInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <div className="mt-2 flex overflow-hidden rounded-2xl border border-white/12 bg-[#0B1411] focus-within:border-emerald-400">
@@ -2069,7 +2326,7 @@ function WhatsappInput({ value, onChange }: { value: string; onChange: (value: s
     </div>
   );
 }
-
+ 
 function SelectBox({
   value,
   onChange,
@@ -2089,7 +2346,7 @@ function SelectBox({
     </select>
   );
 }
-
+ 
 function PrimaryButton({ disabled, children }: { disabled: boolean; children: React.ReactNode }) {
   return (
     <button
@@ -2100,7 +2357,7 @@ function PrimaryButton({ disabled, children }: { disabled: boolean; children: Re
     </button>
   );
 }
-
+ 
 function InstagramIcon({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -2125,15 +2382,15 @@ function InstagramIcon({ size = 20 }: { size?: number }) {
     </svg>
   );
 }
-
+ 
 function getMinimumPrice(prices: PricingOption[], fieldId: string) {
   const fieldPrices = prices.filter((price) => price.field_id === fieldId && price.is_active);
   if (!fieldPrices.length) return "Preço sob consulta";
-
+ 
   const min = Math.min(...fieldPrices.map((price) => Number(price.price || 0)));
   return `A partir de R$ ${formatMoney(min)}`;
 }
-
+ 
 function hasConflictAt(
   bookings: Booking[],
   recurring: RecurringBooking[],
@@ -2143,37 +2400,68 @@ function hasConflictAt(
   start: number,
   end: number
 ) {
-  const normal = bookings.some(
-    (booking) =>
-      booking.field_id === fieldId &&
-      booking.booking_date === date &&
-      booking.status !== "cancelada" &&
-      start < timeToMinutes(booking.end_time.slice(0, 5)) &&
-      end > timeToMinutes(booking.start_time.slice(0, 5))
-  );
-
-  const fixed = getRecurringBookingsForDate(recurring, date, fieldId).some(
-    (booking) =>
-      booking.status === "active" &&
-      start < timeToMinutes(booking.end_time.slice(0, 5)) &&
-      end > timeToMinutes(booking.start_time.slice(0, 5))
-  );
-
-  const blocked = blocks.some(
-    (block) =>
-      block.field_id === fieldId &&
-      block.block_date === date &&
-      block.status === "active" &&
-      start < timeToMinutes(block.end_time.slice(0, 5)) &&
-      end > timeToMinutes(block.start_time.slice(0, 5))
-  );
-
+  const normal = bookings.some((booking) => {
+    if (booking.field_id !== fieldId) return false;
+    if (booking.booking_date !== date) return false;
+    if (booking.status === "cancelada") return false;
+ 
+    const range = getComparableTimeRange(
+      booking.start_time.slice(0, 5),
+      booking.end_time.slice(0, 5),
+      start
+    );
+ 
+    return start < range.end && end > range.start;
+  });
+ 
+  const fixed = getRecurringBookingsForDate(recurring, date, fieldId).some((booking) => {
+    if (booking.status !== "active") return false;
+ 
+    const range = getComparableTimeRange(
+      booking.start_time.slice(0, 5),
+      booking.end_time.slice(0, 5),
+      start
+    );
+ 
+    return start < range.end && end > range.start;
+  });
+ 
+  const blocked = blocks.some((block) => {
+    if (block.field_id !== fieldId) return false;
+    if (block.block_date !== date) return false;
+    if (block.status !== "active") return false;
+ 
+    const range = getComparableTimeRange(
+      block.start_time.slice(0, 5),
+      block.end_time.slice(0, 5),
+      start
+    );
+ 
+    return start < range.end && end > range.start;
+  });
+ 
   return normal || fixed || blocked;
 }
-
+ 
+function getComparableTimeRange(startTime: string, endTime: string, referenceStart: number) {
+  let start = timeToMinutes(startTime);
+  let end = timeToMinutes(endTime);
+ 
+  if (end <= start) {
+    end += 24 * 60;
+  }
+ 
+  if (referenceStart >= 12 * 60 && start < 12 * 60) {
+    start += 24 * 60;
+    end += 24 * 60;
+  }
+ 
+  return { start, end };
+}
+ 
 function getRecurringBookingsForDate(bookings: RecurringBooking[], date: string, fieldId?: string) {
   const weekday = new Date(`${date}T00:00:00`).getDay();
-
+ 
   return bookings.filter(
     (booking) =>
       (!fieldId || booking.field_id === fieldId) &&
@@ -2182,40 +2470,56 @@ function getRecurringBookingsForDate(bookings: RecurringBooking[], date: string,
       (!booking.end_date || date <= booking.end_date)
   );
 }
-
+ 
+function getCustomerStorageKey(arenaId: string) {
+  return `arenaflow_customer_session_${arenaId}`;
+}
+ 
+function getNextDateForWeekday(date: string, weekday: number) {
+  const base = new Date(`${date}T00:00:00`);
+  const currentWeekday = base.getDay();
+  const daysToAdd = (weekday - currentWeekday + 7) % 7;
+ 
+  base.setDate(base.getDate() + daysToAdd);
+ 
+  return base.toISOString().slice(0, 10);
+}
+ 
 function timeToMinutes(time: string) {
   const [hour, minute] = time.split(":").map(Number);
   return hour * 60 + minute;
 }
-
+ 
 function minutesToTime(total: number) {
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  const normalized = total % (24 * 60);
+ 
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
 }
-
+ 
 function addMinutesToTime(time: string, minutes: number) {
   return minutesToTime(timeToMinutes(time) + minutes);
 }
-
+ 
 function getFieldName(fields: FieldRelation) {
   if (!fields) return "Quadra";
   if (Array.isArray(fields)) return fields[0]?.name || "Quadra";
   return fields.name || "Quadra";
 }
-
+ 
 function getWeekdayLabel(weekday: number) {
   return weekDays[weekday] || "Dia";
 }
-
+ 
 function normalizeSocialUrl(value: string, type: "instagram" | "facebook") {
   if (!value) return "#";
   if (value.startsWith("http://") || value.startsWith("https://")) return value;
-
+ 
   const clean = value.replace("@", "").replace(/^\/+/, "");
-
+ 
   if (type === "instagram") return `https://instagram.com/${clean}`;
   return `https://facebook.com/${clean}`;
 }
-
+ 
 function translateStatus(status: string) {
   const labels: Record<string, string> = {
     pendente: "Pendente",
@@ -2228,14 +2532,14 @@ function translateStatus(status: string) {
     paid: "Pago",
     partial: "Parcial",
   };
-
+ 
   return labels[status] || status;
 }
-
+ 
 function formatMoney(value: string | number) {
   return Number(value || 0).toFixed(2).replace(".", ",");
 }
-
+ 
 function formatDate(date: string) {
   const [year, month, day] = date.split("-");
   return `${day}/${month}/${year}`;
