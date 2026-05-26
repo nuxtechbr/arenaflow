@@ -1937,33 +1937,42 @@ function CustomerAccessMenu({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed left-4 top-4 z-50 md:left-6 md:top-6">
+    <div className="fixed right-3 top-3 z-50 md:right-6 md:top-6">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-[#101923]/95 px-4 py-3 text-sm font-black text-white shadow-2xl shadow-black/30 transition hover:border-emerald-300 hover:bg-[#132033]"
+        className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-[#101923]/95 px-3 text-sm font-black text-white shadow-2xl shadow-black/40 backdrop-blur transition hover:border-emerald-300 md:h-auto md:px-4 md:py-3"
         aria-label="Abrir área do cliente"
       >
         {open ? <X size={18} /> : <UserRound size={18} className="text-emerald-300" />}
-        <span>Minhas reservas</span>
+        <span className="hidden sm:inline">Minhas reservas</span>
       </button>
- 
+
       {open && (
-        <div className="mt-3 max-h-[calc(100vh-7rem)] w-[calc(100vw-2rem)] overflow-y-auto rounded-3xl border border-white/12 bg-[#101923] p-3 shadow-2xl shadow-black/50 sm:w-[420px]">
+        <div className="absolute right-0 mt-3 max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-3xl border border-white/12 bg-[#101923] p-3 shadow-2xl shadow-black/50 sm:w-[420px]">
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Área do cliente</p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">
+              Área do cliente
+            </p>
+
             {authenticated ? (
               <div className="mt-2">
-                <p className="text-base font-black text-white">{customerName || "Cliente ArenaFlow"}</p>
-                <p className="mt-1 text-sm text-slate-300">+55 {whatsapp.replace(/^55/, "")}</p>
+                <p className="text-base font-black text-white">
+                  {customerName || "Cliente ArenaFlow"}
+                </p>
+                <p className="mt-1 text-sm text-slate-300">
+                  +55 {whatsapp.replace(/^55/, "")}
+                </p>
               </div>
             ) : (
-              <p className="mt-1 text-sm text-slate-200">Entre com seu WhatsApp para consultar reservas e solicitações.</p>
+              <p className="mt-1 text-sm text-slate-200">
+                Entre com seu WhatsApp para consultar reservas e solicitações.
+              </p>
             )}
           </div>
- 
+
           <div className="mt-3">{children}</div>
- 
+
           {authenticated && (
             <button
               type="button"
