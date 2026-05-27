@@ -55,7 +55,9 @@ type SubscriptionPlanStatus = {
 };
 
 const BILLING_WHATSAPP = "5522999270052";
-const today = new Date().toISOString().slice(0, 10);
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function DashboardLayout({
   children,
@@ -119,7 +121,7 @@ function DashboardLayoutContent({
   const businessStatus = getSubscriptionBusinessStatus(planStatus);
   const isTrialExpired = businessStatus === "trial_expired";
   const isTrialing = businessStatus === "trialing";
-  const trialDaysLeft = planStatus?.trial_ends_at ? daysBetween(today, planStatus.trial_ends_at.slice(0, 10)) : null;
+  const trialDaysLeft = planStatus?.trial_ends_at ? daysBetween(getTodayDate(), planStatus.trial_ends_at.slice(0, 10)) : null;
 
   const arenaSubLinks: SubLink[] = [
     { label: "Visual da Arena", href: "/dashboard/arena?tab=visual", key: "visual" },
@@ -188,7 +190,7 @@ function DashboardLayoutContent({
         .maybeSingle(),
       supabase
         .from("subscriptions")
-        .select("id, plan_key, status, lifecycle_stage, billing_provider, allow_multi_arena, max_arenas, asaas_status, trial_started_at, trial_ends_at, asaas_subscription_id")
+        .select("id, plan_key, status, lifecycle_stage, billing_provider, allow_multi_arena, max_arenas, asaas_status, trial_started_at, trial_ends_at, asaas_subscription_id, activated_at, next_due_date, current_period_end")
         .eq("arena_id", activeArenaId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -750,7 +752,7 @@ function getSubscriptionBusinessStatus(subscription: SubscriptionPlanStatus | nu
   if (status === "active" || lifecycle === "active" || ["RECEIVED", "CONFIRMED", "ACTIVE"].includes(asaas)) return "active";
 
   if (status === "trialing" || lifecycle === "trial") {
-    if (subscription.trial_ends_at && daysBetween(today, subscription.trial_ends_at.slice(0, 10)) < 0) {
+    if (subscription.trial_ends_at && daysBetween(getTodayDate(), subscription.trial_ends_at.slice(0, 10)) < 0) {
       return "trial_expired";
     }
 

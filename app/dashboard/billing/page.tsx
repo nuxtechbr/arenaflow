@@ -77,19 +77,62 @@ type AsaasPayment = {
   created_at: string;
 };
 
+type BillingInvoice = {
+  id: string;
+  arena_id: string;
+  subscription_id: string | null;
+  due_date: string;
+  amount: number;
+  status: string;
+  paid_at: string | null;
+  payment_url: string | null;
+  pix_payload: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
 const ARENAFLOW_WHATSAPP = "5522999270052";
 const today = new Date().toISOString().slice(0, 10);
 
+
 export default function BillingPage() {
   const { activeArenaId, activeArenaInfo, loading: arenaLoading } = useActiveArena();
+  const [billingInvoices, setBillingInvoices] = useState<BillingInvoice[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [asaasPayments, setAsaasPayments] = useState<AsaasPayment[]>([]);
   const [latestPix, setLatestPix] = useState<{ qrCode: string | null; payload: string | null; dueDate: string | null } | null>(null);
-  const [savingPlan, setSavingPlan] = useState("");
+  const [savingPlan, setSavingPlan] = useState("") 
 
+async function payBillingInvoice(invoiceId: string) {
+  try {
+    const response = await fetch("/api/billing-invoices/create-payment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        invoice_id: invoiceId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return alert(data.error || "Erro ao gerar pagamento.");
+    }
+
+    if (data.payment_url) {
+      window.open(data.payment_url, "_blank");
+    }
+
+    await loadBilling();
+  } catch {
+    alert("Não foi possível gerar o pagamento agora.");
+  }
+}
   useEffect(() => {
     if (!arenaLoading && activeArenaId) loadBilling();
     if (!arenaLoading && !activeArenaId) setLoading(false);
@@ -107,25 +150,43 @@ export default function BillingPage() {
   const isTrial = businessStatus === "trialing";
   const isTrialExpired = businessStatus === "trial_expired";
   const isActive = businessStatus === "active";
+  const shouldShowActivationCta = !isActive && !subscription?.activated_at && !subscription?.asaas_subscription_id;
   const trialDaysLeft = subscription?.trial_ends_at ? daysBetween(today, subscription.trial_ends_at.slice(0, 10)) : null;
   const trialProgress = subscription?.trial_started_at && subscription?.trial_ends_at
     ? getTrialProgress(subscription.trial_started_at, subscription.trial_ends_at)
     : 0;
   const firstDuePreview = addMonths(new Date(), 1).toISOString().slice(0, 10);
 
+  const openBillingInvoices = billingInvoices.filter(
+    (invoice: BillingInvoice) => String(invoice.status || "").toLowerCase() !== "paid"
+  );
+
+  const paidBillingInvoices = billingInvoices.filter(
+    (invoice: BillingInvoice) => String(invoice.status || "").toLowerCase() === "paid"
+  );
+
+  const fallbackNextDueDate = subscription?.activated_at
+    ? addMonths(new Date(subscription.activated_at), 1).toISOString().slice(0, 10)
+    : firstDuePreview;
+
+  const currentBillingInvoice = openBillingInvoices[0] || null;
+
   const nextDueDate =
-    subscription?.asaas_next_due_date ||
+    currentBillingInvoice?.due_date ||
     subscription?.next_due_date ||
     subscription?.current_period_end ||
     latestAsaasPayment?.due_date ||
+    subscription?.asaas_next_due_date ||
+    fallbackNextDueDate ||
     "";
+
 
   async function loadBilling() {
     if (!activeArenaId) return;
 
     setLoading(true);
 
-    const [plansRes, subscriptionRes, paymentsRes] = await Promise.all([
+    const [plansRes, subscriptionRes, paymentsRes, invoicesRes] = await Promise.all([
       supabase
         .from("plans")
         .select("*")
@@ -144,6 +205,11 @@ export default function BillingPage() {
         .eq("arena_id", activeArenaId)
         .order("created_at", { ascending: false })
         .limit(12),
+      supabase
+        .from("billing_invoices")
+        .select("*")
+        .eq("arena_id", activeArenaId)
+        .order("due_date", { ascending: true }),
     ]);
 
     setLoading(false);
@@ -151,10 +217,12 @@ export default function BillingPage() {
     if (plansRes.error) return alert(plansRes.error.message);
     if (subscriptionRes.error) return alert(subscriptionRes.error.message);
     if (paymentsRes.error) return alert(paymentsRes.error.message);
+    if (invoicesRes.error) return alert(invoicesRes.error.message);
 
     setPlans((plansRes.data || []) as Plan[]);
     setSubscription((subscriptionRes.data || null) as Subscription | null);
     setAsaasPayments((paymentsRes.data || []) as AsaasPayment[]);
+    setBillingInvoices((invoicesRes.data || []) as BillingInvoice[]);
   }
 
   async function activateSubscription(plan?: Plan | null) {
@@ -333,9 +401,9 @@ export default function BillingPage() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={businessStatus} />
-                {subscription?.asaas_subscription_id ? (
-                  <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-300">
-                    Asaas conectado
+                {isActive ? (
+                  <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300">
+                    {subscription?.asaas_subscription_id ? "Asaas conectado" : "Assinatura manual ativa"}
                   </span>
                 ) : (
                   <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">
@@ -391,10 +459,21 @@ export default function BillingPage() {
           <h2 className="mt-4 text-2xl font-black">Cobrança atual</h2>
 
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            {subscription?.asaas_subscription_id
-              ? "Sua cobrança Asaas aparece aqui."
+            {isActive
+              ? "Sua assinatura está ativa. A mensalidade atual aparece abaixo."
               : "Você ainda não possui recorrência ativa. Ative a assinatura para começar."}
           </p>
+
+          {isActive && currentBillingInvoice && (
+            <div className="mt-5 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Mensalidade atual</p>
+              <p className="mt-2 text-2xl font-black text-white">R$ {formatMoney(currentBillingInvoice.amount || currentPlan?.monthly_price || 89.9)}</p>
+              <p className="mt-1 text-sm text-slate-300">Vencimento: {formatDate(currentBillingInvoice.due_date)}</p>
+              <span className="mt-3 inline-flex rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">
+                {translateStatus(currentBillingInvoice.status || "open")}
+              </span>
+            </div>
+          )}
 
           <div className="mt-5 space-y-3">
             {(latestPix?.qrCode || subscription?.asaas_last_pix_qr_code || latestAsaasPayment?.pix_qr_code) && (
@@ -418,13 +497,13 @@ export default function BillingPage() {
               </button>
             )}
 
-            {!subscription?.asaas_subscription_id && (
+            {shouldShowActivationCta && (
               <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-relaxed text-emerald-100">
                 Ao ativar hoje, sua assinatura começa agora, mas o primeiro Pix vence em {formatDate(firstDuePreview)}.
               </div>
             )}
 
-            {!subscription?.asaas_subscription_id && (
+            {shouldShowActivationCta && (
               <button
                 type="button"
                 disabled={Boolean(savingPlan)}
@@ -463,13 +542,43 @@ export default function BillingPage() {
               plan={plan}
               active={(subscription?.plan_key || "essential") === plan.plan_key}
               saving={savingPlan === plan.plan_key}
-              canActivate={!subscription?.asaas_subscription_id && (subscription?.plan_key || "essential") === plan.plan_key}
+              canActivate={shouldShowActivationCta && (subscription?.plan_key || "essential") === plan.plan_key}
               onChoose={() => activateSubscription(plan)}
               onWhatsapp={openSupportWhatsapp}
             />
           ))}
         </div>
       </section>
+
+      <BillingHistoryPanel
+        title="Mensalidades ArenaFlow"
+        empty="Nenhuma mensalidade registrada ainda."
+      >
+        {currentBillingInvoice && (
+          <PaymentRow
+            key={currentBillingInvoice.id}
+            title="Mensalidade atual"
+            status={currentBillingInvoice.status || "open"}
+            amount={currentBillingInvoice.amount || currentPlan?.monthly_price || 89.9}
+            dueDate={currentBillingInvoice.due_date}
+            paidDate={currentBillingInvoice.paid_at}
+            invoiceUrl={currentBillingInvoice.payment_url}
+            onPay={() => payBillingInvoice(currentBillingInvoice.id)}
+          />
+        )}
+
+        {paidBillingInvoices.map((invoice) => (
+          <PaymentRow
+            key={invoice.id}
+            title="Mensalidade paga"
+            status={invoice.status || "paid"}
+            amount={invoice.amount || currentPlan?.monthly_price || 89.9}
+            dueDate={invoice.due_date}
+            paidDate={invoice.paid_at}
+            invoiceUrl={invoice.payment_url}
+          />
+        ))}
+      </BillingHistoryPanel>
 
       <BillingHistoryPanel
         title="Pagamentos Asaas"
@@ -704,14 +813,16 @@ function BillingHistoryPanel({
 }: {
   title: string;
   empty: string;
-  children: React.ReactNode[];
+  children: React.ReactNode;
 }) {
+  const items = Array.isArray(children) ? children.filter(Boolean) : children ? [children] : [];
+
   return (
     <section className="rounded-[2rem] border border-white/10 bg-[#0F172A] p-5">
       <h2 className="text-2xl font-black">{title}</h2>
 
       <div className="mt-4 space-y-3">
-        {children.length > 0 ? children : (
+        {items.length > 0 ? items : (
           <div className="rounded-3xl border border-dashed border-white/10 p-8 text-center text-slate-500">
             {empty}
           </div>
@@ -728,6 +839,7 @@ function PaymentRow({
   dueDate,
   paidDate,
   invoiceUrl,
+  onPay,
 }: {
   title: string;
   status: string;
@@ -735,7 +847,9 @@ function PaymentRow({
   dueDate: string | null;
   paidDate: string | null;
   invoiceUrl?: string | null;
+  onPay?: () => void;
 }) {
+
   return (
     <div className="rounded-3xl border border-white/10 bg-[#07111B] p-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
@@ -753,16 +867,24 @@ function PaymentRow({
         <div className="flex items-center gap-3">
           <span className="font-black text-emerald-300">R$ {formatMoney(amount)}</span>
 
-          {invoiceUrl && (
-            <a
-              href={invoiceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-white/10 px-3 py-2 text-sm font-black text-white hover:border-emerald-400"
-            >
-              Abrir
-            </a>
-          )}
+          {invoiceUrl ? (
+  <a
+    href={invoiceUrl}
+    target="_blank"
+    rel="noreferrer"
+    className="rounded-xl border border-white/10 px-3 py-2 text-sm font-black text-white hover:border-emerald-400"
+  >
+    Pagar
+  </a>
+) : onPay ? (
+  <button
+    type="button"
+    onClick={onPay}
+    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-black text-black hover:bg-emerald-400"
+  >
+    Gerar Pix
+  </button>
+) : null}
         </div>
       </div>
     </div>
@@ -788,6 +910,7 @@ function translateStatus(status: string) {
     trialing: "Teste grátis",
     trial_expired: "Teste expirado",
     pending: "Pendente",
+    open: "Em aberto",
     overdue: "Atrasado",
     blocked: "Bloqueado",
     RECEIVED: "Recebido",

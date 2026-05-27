@@ -308,15 +308,23 @@ export default function PublicArenaPage() {
     }
     const duration = selectedPricing.duration_minutes;
     const times: string[] = [];
- 
-    for (let current = open; current + duration <= close; current += 30) {
-      const start = current;
-      const end = current + duration;
- 
-      if (!hasConflictAt(bookings, recurringBookings, blocks, fieldId, bookingDate, start, end)) {
-        times.push(minutesToTime(current));
-      }
-    }
+
+    const now = new Date();
+const selectedIsToday = bookingDate === now.toISOString().slice(0, 10);
+const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+for (let current = open; current + duration <= close; current += 30) {
+  if (selectedIsToday && current <= currentMinutes) {
+    continue;
+  }
+
+  const start = current;
+  const end = current + duration;
+
+  if (!hasConflictAt(bookings, recurringBookings, blocks, fieldId, bookingDate, start, end)) {
+    times.push(minutesToTime(current));
+  }
+}
  
     return times;
   }, [fieldId, selectedPricing, bookingDate, hours, bookings, recurringBookings, blocks]);
